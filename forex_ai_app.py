@@ -7,7 +7,6 @@ from streamlit_autorefresh import st_autorefresh
 
 # Page setup
 st.set_page_config(page_title="Forex AI Signals", layout="wide")
-st_autorefresh(interval=60000, key="forexrefresh")  # Default 60s refresh
 
 st.title("💹 Live Forex AI Signal App")
 
@@ -22,7 +21,7 @@ period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo"], index=0)
 interval = st.sidebar.selectbox("Interval", ["1m", "5m", "15m", "30m", "1h"], index=1)
 refresh_rate = st.sidebar.slider("Auto-refresh (seconds)", 30, 300, 60)
 
-# Auto-refresh
+# ✅ Single auto-refresh
 st_autorefresh(interval=refresh_rate * 1000, key="forexrefresh")
 
 st.info(f"Fetching {pair} | Period: {period} | Interval: {interval} | Refresh: {refresh_rate}s")
@@ -30,7 +29,6 @@ st.info(f"Fetching {pair} | Period: {period} | Interval: {interval} | Refresh: {
 # --- Download forex data ---
 data = yf.download(pair, period=period, interval=interval)
 
-# Check if data is empty
 if data.empty:
     st.error("⚠️ No data returned! Try another interval or currency pair.")
     st.stop()
