@@ -3,10 +3,11 @@ import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 import ta
+from streamlit_autorefresh import st_autorefresh
 
-# --- Auto-refresh every 60 seconds ---
+# Page setup
 st.set_page_config(page_title="Forex AI Signals", layout="wide")
-st_autorefresh = st.experimental_rerun  # Fallback for future-proofing
+st_autorefresh(interval=60000, key="forexrefresh")  # Default 60s refresh
 
 st.title("💹 Live Forex AI Signal App")
 
@@ -19,19 +20,19 @@ pair = st.sidebar.selectbox("Currency Pair", [
 
 period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo"], index=0)
 interval = st.sidebar.selectbox("Interval", ["1m", "5m", "15m", "30m", "1h"], index=1)
-
 refresh_rate = st.sidebar.slider("Auto-refresh (seconds)", 30, 300, 60)
 
-st.info(f"Fetching {pair} data | Period: {period} | Interval: {interval} | Refresh every {refresh_rate}s")
+# Auto-refresh
+st_autorefresh(interval=refresh_rate * 1000, key="forexrefresh")
 
-# --- Auto-refresh ---
-st.experimental_set_query_params(refresh=str(refresh_rate))
+st.info(f"Fetching {pair} | Period: {period} | Interval: {interval} | Refresh: {refresh_rate}s")
 
 # --- Download forex data ---
 data = yf.download(pair, period=period, interval=interval)
 
+# Check if data is empty
 if data.empty:
-    st.error("⚠️ No data returned! Try a different interval or currency pair.")
+    st.error("⚠️ No data returned! Try another interval or currency pair.")
     st.stop()
 
 data = data.reset_index()
@@ -61,7 +62,7 @@ if close_col is None:
 if close_col != 'Close':
     data.rename(columns={close_col: 'Close'}, inplace=True)
 
-# Ensure numeric
+# Ensure numeric and drop missing values
 data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
 data = data.dropna(subset=['Close'])
 
@@ -102,4 +103,4 @@ ax2.set_title(f'{pair} RSI')
 ax2.legend()
 st.pyplot(fig)
 
-st.caption("Auto-refreshing app for live Forex AI signals. Data source: Yahoo Finance")
+st.caption("Auto-refreshing AI Forex Signals | Data source: Yahoo Finance")
