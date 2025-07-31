@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import ta
 from streamlit_autorefresh import st_autorefresh
+from datetime import datetime, timedelta
 
 # Page setup
 st.set_page_config(page_title="Forex AI Signals", layout="wide")
@@ -76,7 +77,6 @@ data['RSI'] = ta.momentum.RSIIndicator(data['Close'], window=14).rsi()
 macd = ta.trend.MACD(data['Close'])
 data['MACD'] = macd.macd()
 data['MACD_Signal'] = macd.macd_signal()
-
 data = data.dropna()
 
 # --- Generate Smarter Signals ---
@@ -112,6 +112,15 @@ data[['Signal', 'Confidence']] = data.apply(lambda row: pd.Series(signal_with_co
 st.subheader("📊 Latest Signals")
 st.write(data[['Datetime', 'Close', 'MA', 'RSI', 'MACD', 'Signal', 'Confidence']].tail(15))
 
+# --- Count Weekly Signals ---
+last_week = datetime.now() - timedelta(days=7)
+recent_signals = data[data['Datetime'] >= last_week]
+signal_counts = recent_signals['Signal'].value_counts()
+
+st.subheader("📈 Signal Frequency (Last 7 Days)")
+st.write(signal_counts)
+st.bar_chart(signal_counts)
+
 # --- Plot Price with MA ---
 fig, ax1 = plt.subplots(figsize=(12,5))
 ax1.plot(data['Datetime'], data['Close'], label='Close Price', color='blue')
@@ -138,4 +147,4 @@ ax3.set_title(f'{pair} MACD')
 ax3.legend()
 st.pyplot(fig)
 
-st.caption("Flexible & Accurate AI Forex Signals | Data source: Yahoo Finance")
+st.caption("Flexible & Accurate AI Forex Signals | Weekly Stats Included | Data source: Yahoo Finance")
