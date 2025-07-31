@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 import ta
+import time
 
 st.title("💹 Forex AI Signal App")
 
@@ -14,16 +15,29 @@ interval = st.sidebar.selectbox("Interval", ["30m", "1h", "2h", "4h"], index=1)
 
 st.write(f"Fetching data for: {pair}")
 
-# --- Download latest forex data ---
+# --- Download forex data ---
 data = yf.download(pair, period=period, interval=interval)
+
+# Check if data is empty
+if data.empty:
+    st.error("⚠️ No data returned! Try a different interval or currency pair.")
+    st.stop()
+
+# Reset index for plotting
 data = data.reset_index()
 
-# --- Fix MultiIndex issue on Streamlit Cloud ---
+# --- Fix MultiIndex columns if present ---
 if isinstance(data.columns, pd.MultiIndex):
     data.columns = data.columns.get_level_values(-1)
 
-# --- Ensure 'Close' is numeric ---
+# Check if 'Close' exists
+if 'Close' not in data.columns:
+    st.error(f"⚠️ 'Close' column not found. Columns available: {list(data.columns)}")
+    st.stop()
+
+# Ensure Close is numeric
 data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
+data = data.dropna(subset=['Close'])
 
 # --- Calculate Indicators ---
 data['MA50'] = data['Close'].rolling(window=50).mean()
