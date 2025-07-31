@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 import ta
-import time
 
 st.title("💹 Forex AI Signal App")
 
@@ -26,16 +25,34 @@ if data.empty:
 # Reset index for plotting
 data = data.reset_index()
 
-# --- Fix MultiIndex columns if present ---
+# --- Fix MultiIndex columns ---
 if isinstance(data.columns, pd.MultiIndex):
-    data.columns = data.columns.get_level_values(-1)
+    # Flatten columns like ('Close','EURUSD=X') -> 'Close'
+    data.columns = [c[0] if c[0] != '' else c[1] for c in data.columns]
 
-# Check if 'Close' exists
-if 'Close' not in data.columns:
-    st.error(f"⚠️ 'Close' column not found. Columns available: {list(data.columns)}")
+# --- Try to locate the Close column ---
+close_col = None
+for col in data.columns:
+    if col.lower() == 'close':
+        close_col = col
+        break
+
+# If still not found, use the second numeric column as Close
+if close_col is None:
+    for col in data.columns[1:]:
+        if pd.api.types.is_numeric_dtype(data[col]):
+            close_col = col
+            break
+
+if close_col is None:
+    st.error(f"⚠️ Could not identify Close column. Columns: {list(data.columns)}")
     st.stop()
 
-# Ensure Close is numeric
+# Rename the detected column to 'Close'
+if close_col != 'Close':
+    data.rename(columns={close_col: 'Close'}, inplace=True)
+
+# Ensure numeric
 data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
 data = data.dropna(subset=['Close'])
 
