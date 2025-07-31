@@ -113,7 +113,9 @@ st.subheader("📊 Latest Signals")
 st.write(data[['Datetime', 'Close', 'MA', 'RSI', 'MACD', 'Signal', 'Confidence']].tail(15))
 
 # --- Count Weekly Signals ---
+data['Datetime'] = pd.to_datetime(data['Datetime'], errors='coerce')
 last_week = datetime.now() - timedelta(days=7)
+
 recent_signals = data[data['Datetime'] >= last_week]
 signal_counts = recent_signals['Signal'].value_counts()
 
