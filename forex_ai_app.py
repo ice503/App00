@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # Page setup
 st.set_page_config(page_title="Forex AI Signals", layout="wide")
 
-st.title("💹 Live Forex AI Signal App")
+st.title("💹 Flexible & Accurate Forex AI Signal App")
 
 # Sidebar settings
 st.sidebar.header("Settings")
@@ -21,7 +21,13 @@ period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo"], index=0)
 interval = st.sidebar.selectbox("Interval", ["1m", "5m", "15m", "30m", "1h"], index=1)
 refresh_rate = st.sidebar.slider("Auto-refresh (seconds)", 30, 300, 60)
 
-# ✅ Single auto-refresh
+# --- Flexible Strategy Parameters ---
+st.sidebar.subheader("Strategy Settings")
+ma_length = st.sidebar.slider("Moving Average Length", 5, 100, 20)
+rsi_buy = st.sidebar.slider("RSI Buy Threshold", 10, 50, 30)
+rsi_sell = st.sidebar.slider("RSI Sell Threshold", 50, 90, 70)
+
+# Auto-refresh
 st_autorefresh(interval=refresh_rate * 1000, key="forexrefresh")
 
 st.info(f"Fetching {pair} | Period: {period} | Interval: {interval} | Refresh: {refresh_rate}s")
@@ -65,40 +71,71 @@ data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
 data = data.dropna(subset=['Close'])
 
 # --- Calculate Indicators ---
-data['MA20'] = data['Close'].rolling(window=20).mean()
+data['MA'] = data['Close'].rolling(window=ma_length).mean()
 data['RSI'] = ta.momentum.RSIIndicator(data['Close'], window=14).rsi()
+macd = ta.trend.MACD(data['Close'])
+data['MACD'] = macd.macd()
+data['MACD_Signal'] = macd.macd_signal()
+
 data = data.dropna()
 
-# --- Generate Trading Signals ---
-def smarter_signal(row):
-    if row['Close'] > row['MA20'] and row['RSI'] < 30:
-        return 'BUY'
-    elif row['Close'] < row['MA20'] and row['RSI'] > 70:
-        return 'SELL'
+# --- Generate Smarter Signals ---
+def signal_with_confidence(row):
+    conditions = []
+    # Basic MA + RSI
+    if row['Close'] > row['MA'] and row['RSI'] < rsi_buy:
+        conditions.append('BUY')
+    elif row['Close'] < row['MA'] and row['RSI'] > rsi_sell:
+        conditions.append('SELL')
+    
+    # MACD Confirmation
+    if row['MACD'] > row['MACD_Signal']:
+        conditions.append('MACD_BUY')
+    elif row['MACD'] < row['MACD_Signal']:
+        conditions.append('MACD_SELL')
+    
+    # Combine into a single signal with confidence
+    if 'BUY' in conditions and 'MACD_BUY' in conditions:
+        return 'BUY', 100
+    elif 'BUY' in conditions:
+        return 'BUY', 60
+    elif 'SELL' in conditions and 'MACD_SELL' in conditions:
+        return 'SELL', 100
+    elif 'SELL' in conditions:
+        return 'SELL', 60
     else:
-        return 'HOLD'
+        return 'HOLD', 20
 
-data['Signal'] = data.apply(smarter_signal, axis=1)
+data[['Signal', 'Confidence']] = data.apply(lambda row: pd.Series(signal_with_confidence(row)), axis=1)
 
 # --- Display Latest Signals ---
 st.subheader("📊 Latest Signals")
-st.write(data[['Datetime', 'Close', 'MA20', 'RSI', 'Signal']].tail(15))
+st.write(data[['Datetime', 'Close', 'MA', 'RSI', 'MACD', 'Signal', 'Confidence']].tail(15))
 
-# --- Plot Price with MA20 ---
+# --- Plot Price with MA ---
 fig, ax1 = plt.subplots(figsize=(12,5))
 ax1.plot(data['Datetime'], data['Close'], label='Close Price', color='blue')
-ax1.plot(data['Datetime'], data['MA20'], label='MA20', color='orange')
-ax1.set_title(f'{pair} Price & 20-period Moving Average')
+ax1.plot(data['Datetime'], data['MA'], label=f'MA{ma_length}', color='orange')
+ax1.set_title(f'{pair} Price & {ma_length}-period Moving Average')
 ax1.legend()
 st.pyplot(fig)
 
 # --- Plot RSI ---
 fig, ax2 = plt.subplots(figsize=(12,3))
 ax2.plot(data['Datetime'], data['RSI'], color='purple', label='RSI')
-ax2.axhline(70, color='red', linestyle='--')
-ax2.axhline(30, color='green', linestyle='--')
+ax2.axhline(rsi_sell, color='red', linestyle='--')
+ax2.axhline(rsi_buy, color='green', linestyle='--')
 ax2.set_title(f'{pair} RSI')
 ax2.legend()
 st.pyplot(fig)
 
-st.caption("Auto-refreshing AI Forex Signals | Data source: Yahoo Finance")
+# --- Plot MACD ---
+fig, ax3 = plt.subplots(figsize=(12,3))
+ax3.plot(data['Datetime'], data['MACD'], label='MACD', color='cyan')
+ax3.plot(data['Datetime'], data['MACD_Signal'], label='Signal', color='orange')
+ax3.axhline(0, color='black', linestyle='--')
+ax3.set_title(f'{pair} MACD')
+ax3.legend()
+st.pyplot(fig)
+
+st.caption("Flexible & Accurate AI Forex Signals | Data source: Yahoo Finance")
