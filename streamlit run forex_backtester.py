@@ -47,13 +47,21 @@ if data.empty:
 data = data.reset_index()
 
 # --- Safely find the Close price column ---
-close_cols = [col for col in data.columns if "Close" in col]
+close_cols = [col for col in data.columns if "Close" in str(col)]
 if not close_cols:
     st.error("⚠️ Could not find a 'Close' column in the data.")
     st.stop()
 
 close_col = close_cols[0]  # take first matching column
-data['Close'] = pd.to_numeric(data[close_col], errors='coerce')
+
+close_data = data[close_col]
+if isinstance(close_data, pd.DataFrame):
+    close_data = close_data.iloc[:, 0]  # get first column if multiple
+
+st.write("Close column preview:", close_data.head())
+st.write("Type of Close column:", type(close_data))
+
+data['Close'] = pd.to_numeric(close_data, errors='coerce')
 data.dropna(subset=['Close'], inplace=True)
 
 # --- Backtest Function ---
