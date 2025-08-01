@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import ta
-from datetime import datetime, timedelta
+import datetime as dt  # safe import to avoid name conflicts
 
 st.set_page_config(page_title="Forex Strategy Backtester", layout="wide")
 st.title("📊 Forex Strategy Backtester & Optimizer")
@@ -25,13 +25,15 @@ def download_forex_data(symbol, interval):
     else:
         # Intraday data (1h or 4h) only supports 60 days, so we combine
         combined_df = pd.DataFrame()
-        today = datetime.today()
+        today = dt.datetime.today()
         
         for i in range(6):  # 6 segments of 60 days ≈ 1 year
-            end_date = today - timedelta(days=i*60)
-            start_date = end_date - timedelta(days=60)
-            df = yf.download(symbol, start=start_date.strftime("%Y-%m-%d"), 
-                             end=end_date.strftime("%Y-%m-%d"), interval=interval)
+            end_date = today - dt.timedelta(days=i*60)
+            start_date = end_date - dt.timedelta(days=60)
+            df = yf.download(symbol, 
+                             start=start_date.strftime("%Y-%m-%d"), 
+                             end=end_date.strftime("%Y-%m-%d"), 
+                             interval=interval)
             combined_df = pd.concat([df, combined_df])
         
         return combined_df.drop_duplicates()
