@@ -45,8 +45,16 @@ if data.empty:
     st.stop()
 
 data = data.reset_index()
-data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
-data.dropna(inplace=True)
+
+# --- Safely find the Close price column ---
+close_cols = [col for col in data.columns if "Close" in col]
+if not close_cols:
+    st.error("⚠️ Could not find a 'Close' column in the data.")
+    st.stop()
+
+close_col = close_cols[0]  # take first matching column
+data['Close'] = pd.to_numeric(data[close_col], errors='coerce')
+data.dropna(subset=['Close'], inplace=True)
 
 # --- Backtest Function ---
 def backtest_strategy(df, ma_length=20, rsi_buy=30, rsi_sell=70):
