@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import ta
-from datetime import datetime
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Forex Strategy Backtester", layout="wide")
 st.title("📊 Forex Strategy Backtester & Optimizer")
@@ -15,10 +15,29 @@ pair = st.sidebar.selectbox("Currency Pair", [
 ], index=0)
 
 interval = st.sidebar.selectbox("Interval", ["1h", "4h", "1d"], index=0)
-st.sidebar.write("We'll analyze **1 year** of data for this pair.")
+st.sidebar.write("We'll analyze **up to 1 year** of data for this pair.")
 
-# Download 1 year of historical data
-data = yf.download(pair, period="1y", interval=interval)
+# --- Download Data Function ---
+def download_forex_data(symbol, interval):
+    """Download up to 1 year of data, handling intraday limits."""
+    if interval == "1d":
+        return yf.download(symbol, period="1y", interval=interval)
+    else:
+        # Intraday data (1h or 4h) only supports 60 days, so we combine
+        combined_df = pd.DataFrame()
+        today = datetime.today()
+        
+        for i in range(6):  # 6 segments of 60 days ≈ 1 year
+            end_date = today - timedelta(days=i*60)
+            start_date = end_date - timedelta(days=60)
+            df = yf.download(symbol, start=start_date.strftime("%Y-%m-%d"), 
+                             end=end_date.strftime("%Y-%m-%d"), interval=interval)
+            combined_df = pd.concat([df, combined_df])
+        
+        return combined_df.drop_duplicates()
+
+# --- Load Data ---
+data = download_forex_data(pair, interval)
 
 if data.empty:
     st.error("⚠️ No data returned! Try another interval or currency pair.")
