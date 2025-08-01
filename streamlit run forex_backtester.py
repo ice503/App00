@@ -2,7 +2,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import ta
-import datetime as dt  # safe import to avoid name conflicts
 
 st.set_page_config(page_title="Forex Strategy Backtester", layout="wide")
 st.title("📊 Forex Strategy Backtester & Optimizer")
@@ -17,25 +16,25 @@ pair = st.sidebar.selectbox("Currency Pair", [
 interval = st.sidebar.selectbox("Interval", ["1h", "4h", "1d"], index=0)
 st.sidebar.write("We'll analyze **up to 1 year** of data for this pair.")
 
-# --- Download Data Function ---
+# --- Download Data Function (no datetime module) ---
 def download_forex_data(symbol, interval):
-    """Download up to 1 year of data, handling intraday limits."""
+    """Download up to 1 year of data, handling intraday 60-day limit."""
     if interval == "1d":
         return yf.download(symbol, period="1y", interval=interval)
     else:
-        # Intraday data (1h or 4h) only supports 60 days, so we combine
+        # Intraday: Stitch together 6×60-day periods using pandas dates
         combined_df = pd.DataFrame()
-        today = dt.datetime.today()
-        
-        for i in range(6):  # 6 segments of 60 days ≈ 1 year
-            end_date = today - dt.timedelta(days=i*60)
-            start_date = end_date - dt.timedelta(days=60)
+        end_date = pd.Timestamp.today().normalize()
+
+        for i in range(6):  # 6 segments ≈ 1 year
+            segment_end = end_date - pd.Timedelta(days=i*60)
+            segment_start = segment_end - pd.Timedelta(days=60)
             df = yf.download(symbol, 
-                             start=start_date.strftime("%Y-%m-%d"), 
-                             end=end_date.strftime("%Y-%m-%d"), 
+                             start=segment_start.strftime("%Y-%m-%d"), 
+                             end=segment_end.strftime("%Y-%m-%d"), 
                              interval=interval)
             combined_df = pd.concat([df, combined_df])
-        
+
         return combined_df.drop_duplicates()
 
 # --- Load Data ---
