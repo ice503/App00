@@ -1,5 +1,5 @@
-def generate_signal(df):
-    # --- Extract last row values as floats ---
+def generate_signal(df, params):
+    # Extract last row values as floats
     price = float(df['Close'].iloc[-1])
     ema20 = float(df['EMA20'].iloc[-1])
     ema50 = float(df['EMA50'].iloc[-1])
@@ -11,37 +11,24 @@ def generate_signal(df):
     bb_upper = float(df['BB_Upper'].iloc[-1])
     bb_lower = float(df['BB_Lower'].iloc[-1])
 
-    # --- Initialize variables ---
+    # Strategy params
+    rsi_buy = params.get("rsi_buy_threshold", 50)
+    rsi_sell = params.get("rsi_sell_threshold", 50)
+    atr_mult = params.get("atr_multiplier", 1.5)
+
+    # Determine signal
+    trend = "Uptrend" if price > ema200 else "Downtrend"
     confidence = 0
-    trend = ""
-    ema_signal = ""
-    macd_signal_text = ""
-    rsi_text = ""
-    bb_text = ""
-    signal = "WAIT"
+    confidence += 1  # base for trend
 
-    # --- Trend Check ---
-    if price > ema200:
-        trend = "Uptrend"
-        confidence += 1
-    else:
-        trend = "Downtrend"
-        confidence += 1
-
-    # --- EMA Cross ---
+    ema_signal = "Bullish" if ema20 > ema50 else "Bearish"
     if ema20 > ema50:
-        ema_signal = "Bullish (EMA20 > EMA50)"
-        confidence += 1
-    else:
-        ema_signal = "Bearish (EMA20 < EMA50)"
         confidence += 1
 
-    # --- MACD ---
     macd_signal_text = "Bullish" if macd > macd_signal else "Bearish"
     if macd > macd_signal:
         confidence += 1
 
-    # --- RSI ---
     if rsi > 70:
         rsi_text = "Overbought"
     elif rsi < 30:
@@ -49,7 +36,6 @@ def generate_signal(df):
     else:
         rsi_text = "Neutral"
 
-    # --- Bollinger Bands ---
     if price >= bb_upper:
         bb_text = "Near Upper Band → Possible Reversal"
     elif price <= bb_lower:
@@ -57,19 +43,15 @@ def generate_signal(df):
     else:
         bb_text = "In Range"
 
-    # --- Decide Signal ---
-    if trend == "Uptrend" and ema20 > ema50 and macd > macd_signal and rsi > 50:
+    signal = "WAIT"
+    if trend == "Uptrend" and ema20 > ema50 and macd > macd_signal and rsi > rsi_buy:
         signal = "BUY"
-    elif trend == "Downtrend" and ema20 < ema50 and macd < macd_signal and rsi < 50:
+    elif trend == "Downtrend" and ema20 < ema50 and macd < macd_signal and rsi < rsi_sell:
         signal = "SELL"
-    else:
-        signal = "WAIT"
 
-    # --- Risk Management ---
-    sl = price - 1.5 * atr if signal == "BUY" else price + 1.5 * atr
-    tp = price + 3 * atr if signal == "BUY" else price - 3 * atr
+    sl = price - atr_mult * atr if signal == "BUY" else price + atr_mult * atr
+    tp = price + 2 * atr_mult * atr if signal == "BUY" else price - 2 * atr_mult * atr
 
-    # --- Return as dictionary ---
     return {
         "Signal": signal,
         "Confidence": f"{confidence}/5",
@@ -79,5 +61,6 @@ def generate_signal(df):
         "RSI": f"{rsi:.2f} ({rsi_text})",
         "Bollinger": bb_text,
         "Suggested SL": round(sl, 5),
-        "Suggested TP": round(tp, 5)
+        "Suggested TP": round(tp, 5),
+        "ATR Multiplier": atr_mult
     }
