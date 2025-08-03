@@ -10,44 +10,32 @@ from signal_engine import generate_signal
 # Streamlit Page Setup
 # --------------------------
 st.set_page_config(page_title="AI Forex Signal App", layout="wide")
-st.title("📊 AI Forex Signal & Strategy Assistant")
+st.title("📊 AI Forex Signal & Strategy Assistant (Free Version)")
 
 # --------------------------
-# OpenRouter AI Function (with fallback)
+# Free AI Function (Hugging Face)
 # --------------------------
 def ask_ai(prompt):
-    headers = {
-        "Authorization": f"Bearer {st.secrets['OPENROUTER_API_KEY']}",
-        "HTTP-Referer": "https://yourappname.streamlit.app",  # Change to your Streamlit app URL
-        "X-Title": "AI Forex Signal App"
+    # Using Hugging Face Inference API (free LLM)
+    API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-alpha"
+    headers = {"Authorization": "Bearer " + st.secrets["HF_TOKEN"]}  # Optional: Can use without token
+
+    payload = {
+        "inputs": f"You are a Forex trading assistant. {prompt}",
+        "parameters": {"max_new_tokens": 200, "temperature": 0.7}
     }
 
-    def query_openrouter(model):
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "You are an expert Forex trading assistant. Explain signals and suggest strategy changes."},
-                {"role": "user", "content": prompt}
-            ]
-        }
-        try:
-            response = requests.post("https://openrouter.ai/api/v1/chat/completions",
-                                     headers=headers, json=data)
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload)
+        result = response.json()
 
-    # Try GPT-4 mini first
-    result = query_openrouter("openai/gpt-4.1-mini")
-
-    # Fallback to GPT-3.5 Turbo if GPT-4 fails
-    if "choices" not in result:
-        result = query_openrouter("openai/gpt-3.5-turbo")
-
-    if "choices" in result and len(result["choices"]) > 0:
-        return result["choices"][0]["message"]["content"]
-    else:
-        return f"⚠ AI error: {result.get('error', 'Unexpected response from OpenRouter')}"
+        # Hugging Face returns a list with "generated_text"
+        if isinstance(result, list) and "generated_text" in result[0]:
+            return result[0]["generated_text"]
+        else:
+            return f"⚠ AI response error: {result}"
+    except Exception as e:
+        return f"⚠ Failed to contact free AI: {e}"
 
 # --------------------------
 # Strategy Parameters
@@ -98,7 +86,7 @@ else:
 # --------------------------
 # AI Chat Assistant
 # --------------------------
-st.subheader("🤖 AI Trading Assistant")
+st.subheader("🤖 Free AI Trading Assistant")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
