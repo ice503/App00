@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
 import requests
+import time
 from indicators import calculate_indicators
 from signal_engine import generate_signal
 
@@ -10,60 +11,47 @@ from signal_engine import generate_signal
 # Streamlit Page Setup
 # --------------------------
 st.set_page_config(page_title="AI Forex Signal App", layout="wide")
-st.title("📊 AI Forex Signal & Strategy Assistant (Dual AI)")
+st.title("📊 AI Forex Signal & Strategy Assistant (Free Hugging Face Version)")
 
 # --------------------------
-# Dual AI Function
+# Hugging Face AI Function
 # --------------------------
-def ask_ai(prompt):
+def ask_ai(prompt, retries=2):
     """
-    1. Try Hugging Face free model first
-    2. If it fails, fallback to OpenRouter GPT-3.5
+    Use Hugging Face free model with automatic retry if model is cold.
     """
-    # --------------- Hugging Face ---------------
     hf_token = st.secrets.get("HF_TOKEN", "")
-    hf_headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
-    hf_payload = {
-        "inputs": f"You are a Forex trading assistant. {prompt}",
+    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+    payload = {
+        "inputs": f"You are a professional Forex trading assistant. {prompt}",
         "parameters": {"max_new_tokens": 200, "temperature": 0.7}
     }
 
-    try:
-        hf_resp = requests.post(
-            "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
-            headers=hf_headers, json=hf_payload, timeout=25
-        )
-        hf_data = hf_resp.json()
+    for attempt in range(retries):
+        try:
+            response = requests.post(
+                "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
 
-        if isinstance(hf_data, list) and "generated_text" in hf_data[0]:
-            return hf_data[0]["generated_text"]
-    except Exception as e:
-        st.warning(f"Hugging Face failed: {e}")
+            # Hugging Face returns JSON or plain text
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and "generated_text" in result[0]:
+                    return result[0]["generated_text"]
+                else:
+                    return f"⚠ AI response format issue: {result}"
+            else:
+                st.warning(f"Hugging Face status {response.status_code}, retrying...")
+                time.sleep(5)  # Wait before retry
 
-    # --------------- OpenRouter Fallback ---------------
-    try:
-        headers = {
-            "Authorization": f"Bearer {st.secrets.get('OPENROUTER_API_KEY', '')}",
-            "HTTP-Referer": "https://yourappname.streamlit.app",
-            "X-Title": "AI Forex Signal App"
-        }
-        data = {
-            "model": "openai/gpt-3.5-turbo",
-            "messages": [
-                {"role": "system", "content": "You are an expert Forex trading assistant."},
-                {"role": "user", "content": prompt}
-            ]
-        }
-        or_resp = requests.post("https://openrouter.ai/api/v1/chat/completions",
-                                headers=headers, json=data, timeout=25)
-        or_json = or_resp.json()
+        except Exception as e:
+            st.warning(f"Hugging Face request failed: {e}, retrying...")
+            time.sleep(5)
 
-        if "choices" in or_json and len(or_json["choices"]) > 0:
-            return or_json["choices"][0]["message"]["content"]
-        else:
-            return f"⚠ AI Fallback error: {or_json.get('error', 'No response')}"
-    except Exception as e:
-        return f"⚠ AI completely failed: {e}"
+    return "⚠ AI is currently unavailable. Try again in 1-2 minutes."
 
 # --------------------------
 # Strategy Parameters
@@ -114,7 +102,7 @@ else:
 # --------------------------
 # AI Chat Assistant
 # --------------------------
-st.subheader("🤖 AI Trading Assistant")
+st.subheader("🤖 AI Trading Assistant (Free)")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
