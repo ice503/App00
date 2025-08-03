@@ -2,18 +2,33 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
+import requests
 from indicators import calculate_indicators
 from signal_engine import generate_signal
-from openai import OpenAI
 
 # Streamlit Page Setup
 st.set_page_config(page_title="AI Forex Signal App", layout="wide")
 st.title("📊 AI Forex Signal & Strategy Assistant")
 
-# OpenAI API
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# Function to call OpenRouter AI
+def ask_ai(prompt):
+    headers = {
+        "Authorization": f"Bearer {st.secrets['OPENROUTER_API_KEY']}",
+        "HTTP-Referer": "https://yourappname.streamlit.app",  # Change to your Streamlit app URL
+        "X-Title": "AI Forex Signal App"
+    }
+    data = {
+        "model": "openai/gpt-4-1-mini",  # Free daily GPT-4 mini model
+        "messages": [
+            {"role": "system", "content": "You are an expert Forex trading assistant. Explain signals and suggest strategy changes."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    response = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                             headers=headers, json=data)
+    return response.json()['choices'][0]['message']['content']
 
-# Strategy Parameters
+# Strategy Parameters (session state)
 if "strategy_params" not in st.session_state:
     st.session_state.strategy_params = {
         "rsi_buy_threshold": 50,
@@ -53,25 +68,20 @@ else:
 st.subheader("🤖 AI Trading Assistant")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "system", "content": "You are an expert Forex trading assistant. Explain signals and suggest strategy changes."}
-    ]
+    st.session_state.messages = []
 
+# Display previous messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Ask me about signals or change settings..."):
+# Handle user input
+if prompt := st.chat_input("Ask about signals or change settings..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=st.session_state.messages
-    )
-    reply = response.choices[0].message["content"]
-
+    reply = ask_ai(prompt)
     st.session_state.messages.append({"role": "assistant", "content": reply})
     with st.chat_message("assistant"):
         st.markdown(reply)
