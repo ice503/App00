@@ -3,45 +3,41 @@ import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import numpy as np
 
+# --- Page setup ---
 st.set_page_config(page_title="EUR/USD Analyzer", layout="wide")
 st.title("📊 EUR/USD 1-Hour Analyzer & Strategy Suggestion")
 
-# --- Fetch last 7 days of 1-hour data ---
+# --- Step 1: Get the past 7 days of EUR/USD (1-hour) ---
 end = datetime.now()
 start = end - timedelta(days=7)
+
 data = yf.download("EURUSD=X", interval="1h", start=start, end=end)
 
-# --- Check if data is empty ---
-if data.empty or "Close" not in data:
-    st.error("⚠ No Forex data fetched. Yahoo Finance may block EUR/USD on cloud servers.")
-    st.info("Try again later or switch to a stock/crypto symbol for testing.")
+# --- Step 2: Check if we got data ---
+if data.empty:
+    st.error("⚠ No data fetched. Yahoo Finance sometimes blocks Forex on cloud servers.")
 else:
-    # --- Ensure Close is 1-dimensional ---
-    close_prices = data['Close'].squeeze()
+    # --- Step 3: Calculate simple indicators manually ---
+    # Moving Average 50 (trend line)
+    data['MA50'] = data['Close'].rolling(50).mean()
 
-    # --- Calculate RSI manually to avoid TA-Lib 2D errors ---
-    def compute_rsi(series, period=14):
-        delta = series.diff()
-        gain = delta.where(delta > 0, 0.0)
-        loss = -delta.where(delta < 0, 0.0)
-        avg_gain = gain.rolling(window=period, min_periods=period).mean()
-        avg_loss = loss.rolling(window=period, min_periods=period).mean()
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
+    # RSI 14 (overbought/oversold)
+    delta = data['Close'].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
+    data['RSI'] = 100 - (100 / (1 + rs))
 
-    data['RSI'] = compute_rsi(close_prices)
-    data['MA50'] = close_prices.rolling(50).mean()
-
-    # --- Plot Candlestick Chart ---
+    # --- Step 4: Show chart ---
     fig = go.Figure(data=[go.Candlestick(
         x=data.index,
         open=data['Open'],
         high=data['High'],
         low=data['Low'],
-        close=close_prices,
+        close=data['Close'],
         name="Price"
     )])
     fig.add_trace(go.Scatter(
@@ -52,18 +48,18 @@ else:
     fig.update_layout(xaxis_rangeslider_visible=False, height=600)
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Strategy Suggestion ---
-    last_close = close_prices.iloc[-1]
+    # --- Step 5: Suggest a simple strategy ---
+    last_close = data['Close'].iloc[-1]
     last_rsi = data['RSI'].iloc[-1]
     last_ma50 = data['MA50'].iloc[-1]
 
     st.subheader("💡 Suggested Strategy:")
 
     if last_close > last_ma50 and last_rsi > 50:
-        st.success("**Uptrend** → Consider **trend-following strategy** (Buy dips).")
+        st.success("**Uptrend** → Consider **trend-following (buy dips)**")
     elif last_rsi < 30:
-        st.warning("**Oversold** → Potential **bounce/scalping opportunity**.")
+        st.warning("**Oversold** → Possible **bounce/scalping** opportunity")
     else:
-        st.info("**Ranging market** → Consider **range-trading strategy** (Support/Resistance).")
+        st.info("**Sideways market** → Consider **range-trading (support/resistance)**")
 
     st.caption(f"Last Close: {last_close:.5f} | RSI: {last_rsi:.2f} | MA50: {last_ma50:.5f}")
