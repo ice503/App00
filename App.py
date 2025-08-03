@@ -10,32 +10,60 @@ from signal_engine import generate_signal
 # Streamlit Page Setup
 # --------------------------
 st.set_page_config(page_title="AI Forex Signal App", layout="wide")
-st.title("📊 AI Forex Signal & Strategy Assistant (Free Version)")
+st.title("📊 AI Forex Signal & Strategy Assistant (Dual AI)")
 
 # --------------------------
-# Free AI Function (Hugging Face)
+# Dual AI Function
 # --------------------------
 def ask_ai(prompt):
-    # Using Hugging Face Inference API (free LLM)
-    API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-alpha"
-    headers = {"Authorization": "Bearer " + st.secrets["HF_TOKEN"]}  # Optional: Can use without token
-
-    payload = {
+    """
+    1. Try Hugging Face free model first
+    2. If it fails, fallback to OpenRouter GPT-3.5
+    """
+    # --------------- Hugging Face ---------------
+    hf_token = st.secrets.get("HF_TOKEN", "")
+    hf_headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+    hf_payload = {
         "inputs": f"You are a Forex trading assistant. {prompt}",
         "parameters": {"max_new_tokens": 200, "temperature": 0.7}
     }
 
     try:
-        response = requests.post(API_URL, headers=headers, json=payload)
-        result = response.json()
+        hf_resp = requests.post(
+            "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+            headers=hf_headers, json=hf_payload, timeout=25
+        )
+        hf_data = hf_resp.json()
 
-        # Hugging Face returns a list with "generated_text"
-        if isinstance(result, list) and "generated_text" in result[0]:
-            return result[0]["generated_text"]
-        else:
-            return f"⚠ AI response error: {result}"
+        if isinstance(hf_data, list) and "generated_text" in hf_data[0]:
+            return hf_data[0]["generated_text"]
     except Exception as e:
-        return f"⚠ Failed to contact free AI: {e}"
+        st.warning(f"Hugging Face failed: {e}")
+
+    # --------------- OpenRouter Fallback ---------------
+    try:
+        headers = {
+            "Authorization": f"Bearer {st.secrets.get('OPENROUTER_API_KEY', '')}",
+            "HTTP-Referer": "https://yourappname.streamlit.app",
+            "X-Title": "AI Forex Signal App"
+        }
+        data = {
+            "model": "openai/gpt-3.5-turbo",
+            "messages": [
+                {"role": "system", "content": "You are an expert Forex trading assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        }
+        or_resp = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                                headers=headers, json=data, timeout=25)
+        or_json = or_resp.json()
+
+        if "choices" in or_json and len(or_json["choices"]) > 0:
+            return or_json["choices"][0]["message"]["content"]
+        else:
+            return f"⚠ AI Fallback error: {or_json.get('error', 'No response')}"
+    except Exception as e:
+        return f"⚠ AI completely failed: {e}"
 
 # --------------------------
 # Strategy Parameters
@@ -86,7 +114,7 @@ else:
 # --------------------------
 # AI Chat Assistant
 # --------------------------
-st.subheader("🤖 Free AI Trading Assistant")
+st.subheader("🤖 AI Trading Assistant")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
