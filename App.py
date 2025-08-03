@@ -49,9 +49,9 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
     # --- Step 5: Suggest a simple strategy ---
-    last_close = data['Close'].iloc[-1]
-    last_rsi = data['RSI'].iloc[-1]
-    last_ma50 = data['MA50'].iloc[-1]
+    last_close = float(data['Close'].iloc[-1])
+    last_rsi = float(data['RSI'].iloc[-1])
+    last_ma50 = float(data['MA50'].iloc[-1])
 
     st.subheader("💡 Suggested Strategy:")
 
