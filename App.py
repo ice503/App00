@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import ta
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import numpy as np
 
 st.set_page_config(page_title="EUR/USD Analyzer", layout="wide")
 st.title("📊 EUR/USD 1-Hour Analyzer & Strategy Suggestion")
@@ -14,20 +14,34 @@ start = end - timedelta(days=7)
 data = yf.download("EURUSD=X", interval="1h", start=start, end=end)
 
 # --- Check if data is empty ---
-if data.empty:
-    st.error("⚠ No data fetched from Yahoo Finance. Try again later or use a VPN.")
+if data.empty or "Close" not in data:
+    st.error("⚠ No Forex data fetched. Yahoo Finance may block EUR/USD on cloud servers.")
+    st.info("Try again later or switch to a stock/crypto symbol for testing.")
 else:
-    # --- Calculate Indicators ---
-    data['RSI'] = ta.momentum.RSIIndicator(data['Close'], window=14).rsi()
-    data['MA50'] = data['Close'].rolling(50).mean()
+    # --- Ensure Close is 1-dimensional ---
+    close_prices = data['Close'].squeeze()
 
-    # --- Plot Candlestick Chart with MA50 ---
+    # --- Calculate RSI manually to avoid TA-Lib 2D errors ---
+    def compute_rsi(series, period=14):
+        delta = series.diff()
+        gain = delta.where(delta > 0, 0.0)
+        loss = -delta.where(delta < 0, 0.0)
+        avg_gain = gain.rolling(window=period, min_periods=period).mean()
+        avg_loss = loss.rolling(window=period, min_periods=period).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+
+    data['RSI'] = compute_rsi(close_prices)
+    data['MA50'] = close_prices.rolling(50).mean()
+
+    # --- Plot Candlestick Chart ---
     fig = go.Figure(data=[go.Candlestick(
         x=data.index,
         open=data['Open'],
         high=data['High'],
         low=data['Low'],
-        close=data['Close'],
+        close=close_prices,
         name="Price"
     )])
     fig.add_trace(go.Scatter(
@@ -39,18 +53,17 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
     # --- Strategy Suggestion ---
-    last_close = data['Close'].iloc[-1]
+    last_close = close_prices.iloc[-1]
     last_rsi = data['RSI'].iloc[-1]
     last_ma50 = data['MA50'].iloc[-1]
 
     st.subheader("💡 Suggested Strategy:")
 
     if last_close > last_ma50 and last_rsi > 50:
-        st.success("**Market is in uptrend** → Consider a **trend-following strategy** (Buy dips).")
+        st.success("**Uptrend** → Consider **trend-following strategy** (Buy dips).")
     elif last_rsi < 30:
-        st.warning("**Market is oversold** → Potential **bounce/scalping opportunity**.")
+        st.warning("**Oversold** → Potential **bounce/scalping opportunity**.")
     else:
-        st.info("**Market is ranging** → Consider **range-trading strategy** (Support/Resistance).")
+        st.info("**Ranging market** → Consider **range-trading strategy** (Support/Resistance).")
 
-    # --- Extra Info ---
     st.caption(f"Last Close: {last_close:.5f} | RSI: {last_rsi:.2f} | MA50: {last_ma50:.5f}")
