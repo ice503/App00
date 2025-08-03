@@ -1,14 +1,24 @@
 def generate_signal(df):
-    last = df.iloc[-1]
-    price = float(last['Close'])
-    ema20, ema50, ema200 = last['EMA20'], last['EMA50'], last['EMA200']
-    macd, macd_signal = last['MACD'], last['MACD_Signal']
-    rsi = last['RSI']
-    atr = last['ATR']
-    bb_upper, bb_lower = last['BB_Upper'], last['BB_Lower']
+    # --- Extract last row values as floats ---
+    price = float(df['Close'].iloc[-1])
+    ema20 = float(df['EMA20'].iloc[-1])
+    ema50 = float(df['EMA50'].iloc[-1])
+    ema200 = float(df['EMA200'].iloc[-1])
+    macd = float(df['MACD'].iloc[-1])
+    macd_signal = float(df['MACD_Signal'].iloc[-1])
+    rsi = float(df['RSI'].iloc[-1])
+    atr = float(df['ATR'].iloc[-1])
+    bb_upper = float(df['BB_Upper'].iloc[-1])
+    bb_lower = float(df['BB_Lower'].iloc[-1])
 
-    signal = None
+    # --- Initialize variables ---
     confidence = 0
+    trend = ""
+    ema_signal = ""
+    macd_signal_text = ""
+    rsi_text = ""
+    bb_text = ""
+    signal = "WAIT"
 
     # --- Trend Check ---
     if price > ema200:
@@ -39,7 +49,7 @@ def generate_signal(df):
     else:
         rsi_text = "Neutral"
 
-    # --- Bollinger ---
+    # --- Bollinger Bands ---
     if price >= bb_upper:
         bb_text = "Near Upper Band → Possible Reversal"
     elif price <= bb_lower:
@@ -59,6 +69,7 @@ def generate_signal(df):
     sl = price - 1.5 * atr if signal == "BUY" else price + 1.5 * atr
     tp = price + 3 * atr if signal == "BUY" else price - 3 * atr
 
+    # --- Return as dictionary ---
     return {
         "Signal": signal,
         "Confidence": f"{confidence}/5",
