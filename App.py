@@ -13,7 +13,7 @@ st.set_page_config(page_title="AI Forex Signal App", layout="wide")
 st.title("📊 AI Forex Signal & Strategy Assistant")
 
 # --------------------------
-# OpenRouter AI Function
+# OpenRouter AI Function (with fallback)
 # --------------------------
 def ask_ai(prompt):
     headers = {
@@ -21,28 +21,33 @@ def ask_ai(prompt):
         "HTTP-Referer": "https://yourappname.streamlit.app",  # Change to your Streamlit app URL
         "X-Title": "AI Forex Signal App"
     }
-    data = {
-        "model": "openai/gpt-4-1-mini",
-        "messages": [
-            {"role": "system", "content": "You are an expert Forex trading assistant. Explain signals and suggest strategy changes."},
-            {"role": "user", "content": prompt}
-        ]
-    }
 
-    try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions",
-                                 headers=headers, json=data)
-        result = response.json()
+    def query_openrouter(model):
+        data = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are an expert Forex trading assistant. Explain signals and suggest strategy changes."},
+                {"role": "user", "content": prompt}
+            ]
+        }
+        try:
+            response = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                                     headers=headers, json=data)
+            return response.json()
+        except Exception as e:
+            return {"error": str(e)}
 
-        # Debug (optional): Uncomment to show raw JSON in Streamlit
-        # st.write(result)
+    # Try GPT-4 mini first
+    result = query_openrouter("openai/gpt-4.1-mini")
 
-        if "choices" in result and len(result["choices"]) > 0:
-            return result["choices"][0]["message"]["content"]
-        else:
-            return f"⚠ AI error: {result.get('error', 'Unexpected response from OpenRouter')}"
-    except Exception as e:
-        return f"⚠ Failed to contact AI: {e}"
+    # Fallback to GPT-3.5 Turbo if GPT-4 fails
+    if "choices" not in result:
+        result = query_openrouter("openai/gpt-3.5-turbo")
+
+    if "choices" in result and len(result["choices"]) > 0:
+        return result["choices"][0]["message"]["content"]
+    else:
+        return f"⚠ AI error: {result.get('error', 'Unexpected response from OpenRouter')}"
 
 # --------------------------
 # Strategy Parameters
@@ -116,11 +121,13 @@ if prompt := st.chat_input("Ask about signals or change settings..."):
         st.markdown(reply)
 
     # --------------------------
-    # Simple Voice Command Logic
+    # Simple Command Recognition
     # --------------------------
     if "increase atr" in prompt.lower():
         st.session_state.strategy_params["atr_multiplier"] += 0.5
         st.success(f"ATR Multiplier increased to {st.session_state.strategy_params['atr_multiplier']}x")
     elif "decrease atr" in prompt.lower():
-        st.session_state.strategy_params["atr_multiplier"] = max(0.5, st.session_state.strategy_params["atr_multiplier"] - 0.5)
+        st.session_state.strategy_params["atr_multiplier"] = max(
+            0.5, st.session_state.strategy_params["atr_multiplier"] - 0.5
+        )
         st.success(f"ATR Multiplier decreased to {st.session_state.strategy_params['atr_multiplier']}x")
