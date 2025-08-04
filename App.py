@@ -1,97 +1,84 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
+import pandas as pd
 import plotly.graph_objects as go
 from signal_engine import calculate_indicators, generate_signal
 
-# --------------------------
-# Streamlit Page Setup
-# --------------------------
-st.set_page_config(page_title="Pro Trading Signal Dashboard", layout="wide")
+# =======================
+# Streamlit Page Config
+# =======================
+st.set_page_config(page_title="Pro Trading Dashboard", layout="wide")
 st.title("📊 Professional Trading Signal Dashboard")
 
-# --------------------------
-# Sidebar - User Inputs
-# --------------------------
-st.sidebar.header("⚙ Settings")
+# User Inputs
+pair = st.sidebar.text_input("Enter Symbol", value="EURUSD=X")
+timeframe = st.sidebar.selectbox("Timeframe", ["1h", "4h", "1d"], index=0)
+period = st.sidebar.selectbox("Lookback Period", ["1mo", "3mo", "6mo"], index=0)
+rr_ratio = st.sidebar.slider("Risk-Reward Ratio", 1.0, 5.0, 2.0)
+atr_multiplier = st.sidebar.slider("ATR Multiplier (for SL)", 0.5, 3.0, 1.5)
 
-symbol = st.sidebar.selectbox("Select Asset/Pair", [
-    "EURUSD=X", "GBPUSD=X", "USDJPY=X", "XAUUSD=X", "BTC-USD"
-])
-timeframe = st.sidebar.selectbox("Timeframe", ["1h", "4h", "1d"])
-days = st.sidebar.slider("History (days)", 7, 60, 30)
-
-rr_ratio = st.sidebar.slider("Risk-Reward Ratio", 1, 5, 2)
-atr_multiplier = st.sidebar.slider("ATR Multiplier for Stop Loss", 1.0, 3.0, 1.5)
-
-# --------------------------
+# =======================
 # Fetch Market Data
-# --------------------------
-st.subheader(f"📈 Live Chart: {symbol} ({timeframe})")
-data = yf.download(symbol, period=f"{days}d", interval=timeframe)
+# =======================
+st.write(f"📈 Live Chart: **{pair}** ({timeframe})")
 
-if data.empty:
-    st.error("⚠ No data fetched. Try a different symbol or timeframe.")
-    st.stop()
+try:
+    data = yf.download(pair, period=period, interval=timeframe)
+    data.dropna(inplace=True)
 
-# Calculate Indicators
-df = calculate_indicators(data)
+    if data.empty:
+        st.error("No data retrieved. Check symbol or timeframe.")
+        st.stop()
 
-# --------------------------
-# Plot Candlestick + EMAs + Bollinger
-# --------------------------
-fig = go.Figure()
+    df = calculate_indicators(data)
+    signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
 
-# Candlestick
-fig.add_trace(go.Candlestick(
-    x=df.index, open=df['Open'], high=df['High'],
-    low=df['Low'], close=df['Close'],
-    name='Price', increasing_line_color='green', decreasing_line_color='red'
-))
+    # =======================
+    # TradingView-like Chart
+    # =======================
+    fig = go.Figure()
 
-# EMAs
-fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], line=dict(color='blue', width=1), name='EMA20'))
-fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1), name='EMA50'))
-fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='red', width=1), name='EMA200'))
+    # Candlestick
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        name='Candles',
+        increasing_line_color='green',
+        decreasing_line_color='red'
+    ))
 
-# Bollinger Bands
-fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], line=dict(color='purple', width=1), name='BB Upper', opacity=0.4))
-fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], line=dict(color='purple', width=1), name='BB Lower', opacity=0.4))
+    # EMA Lines
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], line=dict(color='yellow', width=1), name='EMA 20'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1), name='EMA 50'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='blue', width=2), name='EMA 200'))
 
-fig.update_layout(
-    xaxis_rangeslider_visible=False,
-    template="plotly_dark",
-    height=600,
-)
+    # Bollinger Bands
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], line=dict(color='lightblue', width=1, dash='dot'), name='BB Upper'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], line=dict(color='lightblue', width=1, dash='dot'), name='BB Lower'))
 
-st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(
+        template='plotly_dark',
+        xaxis_rangeslider_visible=False,
+        height=600,
+        margin=dict(l=10, r=10, t=40, b=10),
+        showlegend=True
+    )
 
-# --------------------------
-# Generate Trading Signal
-# --------------------------
-st.subheader("📊 Current Signal Recommendation")
-signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
+    st.plotly_chart(fig, use_container_width=True)
 
-col1, col2 = st.columns(2)
-with col1:
-    st.metric("Signal", signal_info["signal"])
-    st.metric("Confidence", f"{signal_info['confidence']}%")
-with col2:
-    st.metric("Entry Price", signal_info["entry"])
-    st.metric("Stop-Loss", signal_info["stop_loss"])
-    st.metric("Take-Profit", signal_info["take_profit"])
+    # =======================
+    # Signal Info Display
+    # =======================
+    st.subheader("💡 Signal Suggestion")
+    st.write(f"**Signal:** {signal_info['signal']}")
+    st.write(f"**Confidence:** {signal_info['confidence']}%")
+    st.write(f"**Entry Price:** {signal_info['entry']}")
+    st.write(f"**Stop Loss:** {signal_info['stop_loss']}")
+    st.write(f"**Take Profit:** {signal_info['take_profit']}")
+    st.write(f"**Reason:** {signal_info['reason']}")
 
-st.info(f"💡 Reason: {signal_info['reason']}")
-
-# --------------------------
-# Signal History (Optional)
-# --------------------------
-st.subheader("📜 Signal History (last 10 bars)")
-history = []
-for i in range(len(df) - 10, len(df)):
-    temp_df = df.iloc[:i+1]
-    sig = generate_signal(temp_df, rr_ratio, atr_multiplier)
-    history.append([df.index[i], sig["signal"], sig["entry"], sig["stop_loss"], sig["take_profit"]])
-
-hist_df = pd.DataFrame(history, columns=["Time", "Signal", "Entry", "Stop-Loss", "Take-Profit"])
-st.dataframe(hist_df, use_container_width=True)
+except Exception as e:
+    st.error(f"Error loading chart: {e}")
