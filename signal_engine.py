@@ -1,31 +1,42 @@
 import pandas as pd
-import ta
 import numpy as np
+import ta
 
 def calculate_indicators(df):
     df = df.copy()
 
-    # EMAs
-    df['EMA20'] = df['Close'].ewm(span=20).mean()
-    df['EMA50'] = df['Close'].ewm(span=50).mean()
-    df['EMA200'] = df['Close'].ewm(span=200).mean()
+    # ========================
+    # Moving Averages
+    # ========================
+    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
 
-    # MACD with fix for 1D array
-    macd = ta.trend.MACD(df['Close'])
-    df['MACD'] = np.ravel(macd.macd().values)
-    df['MACD_signal'] = np.ravel(macd.macd_signal().values)
+    # ========================
+    # MACD (Manual Calculation to avoid ta-lib bug)
+    # ========================
+    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
+    # ========================
     # RSI
+    # ========================
     rsi_indicator = ta.momentum.RSIIndicator(df['Close'], window=14)
     df['RSI'] = rsi_indicator.rsi()
 
+    # ========================
     # ATR
+    # ========================
     atr = ta.volatility.AverageTrueRange(
         high=df['High'], low=df['Low'], close=df['Close'], window=14
     )
     df['ATR'] = atr.average_true_range()
 
+    # ========================
     # Bollinger Bands
+    # ========================
     bb = ta.volatility.BollingerBands(df['Close'], window=20, window_dev=2)
     df['BB_upper'] = bb.bollinger_hband()
     df['BB_lower'] = bb.bollinger_lband()
@@ -35,7 +46,7 @@ def calculate_indicators(df):
 def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
     last = df.iloc[-1]
 
-    # Safety checks: if any required indicator is missing or NaN, return WAIT
+    # Safety checks
     required_cols = ['Close', 'EMA200', 'MACD', 'MACD_signal', 'RSI', 'ATR']
     if any(col not in df.columns or pd.isna(last[col]) for col in required_cols):
         return {
@@ -75,4 +86,4 @@ def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
         "stop_loss": round(sl, 5) if sl else None,
         "take_profit": round(tp, 5) if tp else None,
         "reason": f"EMA200 trend + MACD + RSI alignment ({signal})"
-    }
+}
