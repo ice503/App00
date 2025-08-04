@@ -4,102 +4,83 @@ import numpy as np
 def calculate_indicators(df):
     df = df.copy()
 
-    # EMAs
-    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
-    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    # --- EMA ---
+    df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
+    df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
+    df["EMA200"] = df["Close"].ewm(span=200, adjust=False).mean()
 
-    # Bollinger Bands
-    sma20 = df['Close'].rolling(window=20).mean()
-    std20 = df['Close'].rolling(window=20).std()
-    df['BB_upper'] = sma20 + (std20 * 2)
-    df['BB_lower'] = sma20 - (std20 * 2)
+    # --- MACD ---
+    short_ema = df["Close"].ewm(span=12, adjust=False).mean()
+    long_ema = df["Close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = short_ema - long_ema
+    df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-    # RSI (manual to avoid shape errors)
-    delta = df['Close'].diff()
+    # --- Bollinger Bands ---
+    df["BB_Mid"] = df["Close"].rolling(window=20).mean()
+    df["BB_Upper"] = df["BB_Mid"] + 2 * df["Close"].rolling(window=20).std()
+    df["BB_Lower"] = df["BB_Mid"] - 2 * df["Close"].rolling(window=20).std()
+
+    # --- ATR ---
+    high_low = df["High"] - df["Low"]
+    high_close = (df["High"] - df["Close"].shift()).abs()
+    low_close = (df["Low"] - df["Close"].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df["ATR"] = tr.rolling(window=14).mean()
+
+    # --- RSI (manual, fixed 1D) ---
+    delta = df["Close"].diff().fillna(0)
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(window=14).mean()
-    avg_loss = pd.Series(loss).rolling(window=14).mean()
-    rs = avg_gain / avg_loss
-    df['RSI'] = 100 - (100 / (1 + rs))
 
-    # MACD
-    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
-    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = ema12 - ema26
-    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['MACD_hist'] = df['MACD'] - df['MACD_signal']
+    # Convert to Series explicitly to ensure 1D
+    gain = pd.Series(gain, index=df.index)
+    loss = pd.Series(loss, index=df.index)
 
-    # ATR for SL/TP
-    df['H-L'] = df['High'] - df['Low']
-    df['H-C'] = abs(df['High'] - df['Close'].shift(1))
-    df['L-C'] = abs(df['Low'] - df['Close'].shift(1))
-    df['TR'] = df[['H-L', 'H-C', 'L-C']].max(axis=1)
-    df['ATR'] = df['TR'].rolling(window=14).mean()
+    avg_gain = gain.rolling(window=14, min_periods=14).mean()
+    avg_loss = loss.rolling(window=14, min_periods=14).mean()
 
-    return df.dropna()
+    rs = avg_gain / (avg_loss.replace(0, np.nan))
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    return df
+
 
 def generate_signal(df, rr_ratio=2.0, atr_multiplier=1.5):
+    """Generate trading signals with SL & TP"""
     last = df.iloc[-1]
-    price = last['Close']
-    atr = last['ATR']
-
     signal = "HOLD"
-    reason = []
-    confidence = 0
+    reason = "No strong signal"
+    confidence = 50
 
-    # Trend filter: EMA alignment
-    if last['EMA20'] > last['EMA50'] > last['EMA200']:
-        trend = "Bullish"
-        confidence += 30
-    elif last['EMA20'] < last['EMA50'] < last['EMA200']:
-        trend = "Bearish"
-        confidence += 30
-    else:
-        trend = "Sideways"
+    price = last["Close"]
+    atr = last["ATR"]
 
-    # MACD confirmation
-    if last['MACD'] > last['MACD_signal']:
-        macd_signal = "Bullish"
-        confidence += 20
-    else:
-        macd_signal = "Bearish"
-        confidence += 20
-
-    # RSI
-    if last['RSI'] > 50:
-        rsi_signal = "Bullish"
-        confidence += 20
-    else:
-        rsi_signal = "Bearish"
-        confidence += 20
-
-    # Bollinger Band confirmation
-    if price <= last['BB_lower']:
-        reason.append("Oversold (Bollinger)")
-        confidence += 10
-    elif price >= last['BB_upper']:
-        reason.append("Overbought (Bollinger)")
-        confidence += 10
-
-    # Generate final signal
-    if trend == "Bullish" and macd_signal == "Bullish" and rsi_signal == "Bullish":
+    # Example rule: EMA cross & RSI confirmation
+    if last["EMA20"] > last["EMA50"] and last["RSI"] > 55:
         signal = "BUY"
-        reason.append("All indicators aligned for bullish setup")
-    elif trend == "Bearish" and macd_signal == "Bearish" and rsi_signal == "Bearish":
+        reason = "EMA bullish + RSI strong"
+        confidence = 80
+    elif last["EMA20"] < last["EMA50"] and last["RSI"] < 45:
         signal = "SELL"
-        reason.append("All indicators aligned for bearish setup")
+        reason = "EMA bearish + RSI weak"
+        confidence = 80
 
-    # Risk Management
-    stop_loss = price - atr * atr_multiplier if signal == "BUY" else price + atr * atr_multiplier
-    take_profit = price + (atr * atr_multiplier * rr_ratio) if signal == "BUY" else price - (atr * atr_multiplier * rr_ratio)
+    # Stop loss & take profit suggestion
+    if signal == "BUY":
+        stop_loss = price - atr * atr_multiplier
+        take_profit = price + (price - stop_loss) * rr_ratio
+    elif signal == "SELL":
+        stop_loss = price + atr * atr_multiplier
+        take_profit = price - (stop_loss - price) * rr_ratio
+    else:
+        stop_loss = None
+        take_profit = None
 
     return {
         "signal": signal,
-        "confidence": min(confidence, 100),
-        "entry": round(price, 5),
-        "stop_loss": round(stop_loss, 5),
-        "take_profit": round(take_profit, 5),
-        "reason": ", ".join(reason) if reason else "No strong confluence"
+        "confidence": confidence,
+        "entry": price,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "reason": reason,
     }
