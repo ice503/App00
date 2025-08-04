@@ -1,95 +1,100 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from signal_engine import calculate_indicators, generate_signal
 
-# Streamlit Page Config
-st.set_page_config(page_title="TradingView Pro Dashboard", layout="wide")
-st.title("📊 Professional Trading Signal Dashboard")
+def calculate_indicators(df):
+    df = df.copy()
+    # EMAs
+    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    
+    # Bollinger Bands
+    sma20 = df['Close'].rolling(window=20).mean()
+    std20 = df['Close'].rolling(window=20).std()
+    df['BB_upper'] = sma20 + (std20 * 2)
+    df['BB_lower'] = sma20 - (std20 * 2)
+    
+    # RSI
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # MACD
+    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['MACD_hist'] = df['MACD'] - df['MACD_signal']
+    
+    return df.dropna()
 
-# Sidebar Inputs
-pair = st.sidebar.text_input("Enter Symbol", value="EURUSD=X")
-timeframe = st.sidebar.selectbox("Timeframe", ["1h", "4h", "1d"], index=0)
-period = st.sidebar.selectbox("Lookback Period", ["1mo", "3mo", "6mo"], index=0)
-rr_ratio = st.sidebar.slider("Risk-Reward Ratio", 1.0, 5.0, 2.0)
-atr_multiplier = st.sidebar.slider("ATR Multiplier (for SL)", 0.5, 3.0, 1.5)
+def main():
+    st.set_page_config(page_title="Live Trading Chart", layout="wide")
+    st.title("📈 Live Candlestick Chart with Indicators")
 
-st.write(f"📈 Live Chart: **{pair}** ({timeframe})")
+    symbol = st.text_input("Enter ticker symbol", value="EURUSD=X")
+    timeframe = st.selectbox("Select timeframe", ["1h", "4h", "1d"], index=0)
+    period = st.selectbox("Select period", ["1mo", "3mo", "6mo"], index=0)
 
-try:
-    # Fetch Data
-    data = yf.download(pair, period=period, interval=timeframe)
-    data.dropna(inplace=True)
+    st.write(f"Loading data for **{symbol}**, timeframe: **{timeframe}**, period: **{period}**")
 
+    data = yf.download(symbol, period=period, interval=timeframe)
     if data.empty:
-        st.error("No data retrieved. Check symbol or timeframe.")
-        st.stop()
+        st.error("No data found. Please check the symbol and try again.")
+        return
 
-    # Calculate indicators
     df = calculate_indicators(data)
 
-    # Generate signal
-    signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
-
-    # Create subplots (Candlestick + MACD + RSI)
     fig = make_subplots(
-        rows=3, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
+        rows=3, cols=1, shared_xaxes=True,
         row_heights=[0.6, 0.2, 0.2],
-        subplot_titles=("Price with EMAs & Bollinger Bands", "MACD", "RSI")
+        vertical_spacing=0.05,
+        subplot_titles=("Price + EMAs + Bollinger Bands", "MACD", "RSI")
     )
 
     # Candlestick
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df['Open'], high=df['High'],
-            low=df['Low'], close=df['Close'],
-            name='Candlestick',
-            increasing_line_color='green', decreasing_line_color='red'
-        ), row=1, col=1
-    )
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+        name='Candlestick',
+        increasing_line_color='green', decreasing_line_color='red',
+        showlegend=False
+    ), row=1, col=1)
 
-    # EMA Lines
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], line=dict(color='yellow', width=1), name='EMA 20'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1), name='EMA 50'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='blue', width=2), name='EMA 200'), row=1, col=1)
+    # EMAs
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], mode='lines', line=dict(color='yellow', width=1), name='EMA20'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], mode='lines', line=dict(color='orange', width=1), name='EMA50'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], mode='lines', line=dict(color='blue', width=2), name='EMA200'), row=1, col=1)
 
     # Bollinger Bands
-    fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], line=dict(color='lightblue', width=1, dash='dot'), name='BB Upper'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], line=dict(color='lightblue', width=1, dash='dot'), name='BB Lower'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], mode='lines', line=dict(color='lightblue', width=1, dash='dot'), name='BB Upper'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], mode='lines', line=dict(color='lightblue', width=1, dash='dot'), name='BB Lower'), row=1, col=1)
 
     # MACD
-    fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], line=dict(color='cyan', width=1), name='MACD'), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MACD_signal'], line=dict(color='magenta', width=1), name='Signal'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], mode='lines', line=dict(color='cyan', width=1), name='MACD'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MACD_signal'], mode='lines', line=dict(color='magenta', width=1), name='Signal'), row=2, col=1)
+    fig.add_bar(x=df.index, y=df['MACD_hist'], name='Histogram', marker_color='grey', opacity=0.5, row=2, col=1)
 
     # RSI
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='white', width=1), name='RSI'), row=3, col=1)
-    fig.add_hline(y=70, line=dict(color='red', dash='dot'), row=3, col=1)
-    fig.add_hline(y=30, line=dict(color='green', dash='dot'), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], mode='lines', line=dict(color='white', width=1), name='RSI'), row=3, col=1)
+    fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
+    fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
 
-    # Layout Settings
     fig.update_layout(
         template='plotly_dark',
-        xaxis_rangeslider_visible=False,
         height=900,
         margin=dict(l=10, r=10, t=40, b=10),
-        showlegend=True
+        xaxis_rangeslider_visible=False,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Signal Info
-    st.subheader("💡 Signal Suggestion")
-    st.write(f"**Signal:** {signal_info['signal']}")
-    st.write(f"**Confidence:** {signal_info['confidence']}%")
-    st.write(f"**Entry Price:** {signal_info['entry']}")
-    st.write(f"**Stop Loss:** {signal_info['stop_loss']}")
-    st.write(f"**Take Profit:** {signal_info['take_profit']}")
-    st.write(f"**Reason:** {signal_info['reason']}")
-
-except Exception as e:
-    st.error(f"Error loading chart: {e}")
+if __name__ == "__main__":
+    main()
