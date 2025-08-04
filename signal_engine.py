@@ -50,6 +50,7 @@ def calculate_indicators(df):
 
     return df
 
+
 def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
     """
     Generates a trading signal with SL/TP suggestion
@@ -60,14 +61,29 @@ def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
     # Safe check for missing columns or NaN values
     required_cols = ['Close', 'EMA200', 'MACD', 'MACD_signal', 'RSI', 'ATR']
     for col in required_cols:
-        if col not in df.columns or pd.isna(last.get(col)):
+        if col not in df.columns:
             return {
                 "signal": "WAIT",
                 "confidence": 50,
                 "entry": None,
                 "stop_loss": None,
                 "take_profit": None,
-                "reason": f"Missing or invalid data in '{col}'"
+                "reason": f"Missing column '{col}'"
+            }
+
+        value = last[col]
+        # If value is a Series, take the first element
+        if isinstance(value, pd.Series):
+            value = value.iloc[0]
+
+        if pd.isna(value):
+            return {
+                "signal": "WAIT",
+                "confidence": 50,
+                "entry": None,
+                "stop_loss": None,
+                "take_profit": None,
+                "reason": f"Invalid data in '{col}'"
             }
 
     signal = "WAIT"
@@ -96,4 +112,4 @@ def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
         "stop_loss": round(sl, 5) if sl else None,
         "take_profit": round(tp, 5) if tp else None,
         "reason": f"EMA200 trend + MACD + RSI alignment ({signal})"
-            }
+                    }
