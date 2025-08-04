@@ -20,26 +20,27 @@ def calculate_indicators(df):
     df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
     # ========================
-    # RSI (Manual)
+    # RSI (Manual, Flattened Arrays)
     # ========================
-    delta = df['Close'].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
+    delta = df['Close'].diff().values.ravel()
+    gain = np.where(delta > 0, delta, 0).ravel()
+    loss = np.where(delta < 0, -delta, 0).ravel()
 
     roll_up = pd.Series(gain).rolling(window=14).mean()
     roll_down = pd.Series(loss).rolling(window=14).mean()
 
     rs = roll_up / (roll_down + 1e-10)
-    df['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = 100 - (100 / (1 + rs.values))
 
     # ========================
     # ATR (Manual)
     # ========================
-    high_low = df['High'] - df['Low']
-    high_close = np.abs(df['High'] - df['Close'].shift())
-    low_close = np.abs(df['Low'] - df['Close'].shift())
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df['ATR'] = tr.rolling(window=14).mean()
+    high_low = (df['High'] - df['Low']).values.ravel()
+    high_close = np.abs(df['High'] - df['Close'].shift()).values.ravel()
+    low_close = np.abs(df['Low'] - df['Close'].shift()).values.ravel()
+
+    tr = np.max([high_low, high_close, low_close], axis=0)
+    df['ATR'] = pd.Series(tr).rolling(window=14).mean()
 
     # ========================
     # Bollinger Bands
@@ -92,4 +93,4 @@ def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
         "stop_loss": round(sl, 5) if sl else None,
         "take_profit": round(tp, 5) if tp else None,
         "reason": f"EMA200 trend + MACD + RSI alignment ({signal})"
-        }
+    }
