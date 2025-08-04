@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import ta
 
 def calculate_indicators(df):
     df = df.copy()
@@ -13,7 +12,7 @@ def calculate_indicators(df):
     df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
 
     # ========================
-    # MACD (Manual Calculation to avoid ta-lib bug)
+    # MACD (Manual)
     # ========================
     ema12 = df['Close'].ewm(span=12, adjust=False).mean()
     ema26 = df['Close'].ewm(span=26, adjust=False).mean()
@@ -21,32 +20,39 @@ def calculate_indicators(df):
     df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
     # ========================
-    # RSI
+    # RSI (Manual)
     # ========================
-    rsi_indicator = ta.momentum.RSIIndicator(df['Close'], window=14)
-    df['RSI'] = rsi_indicator.rsi()
+    delta = df['Close'].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+
+    roll_up = pd.Series(gain).rolling(window=14).mean()
+    roll_down = pd.Series(loss).rolling(window=14).mean()
+
+    rs = roll_up / (roll_down + 1e-10)
+    df['RSI'] = 100 - (100 / (1 + rs))
 
     # ========================
-    # ATR
+    # ATR (Manual)
     # ========================
-    atr = ta.volatility.AverageTrueRange(
-        high=df['High'], low=df['Low'], close=df['Close'], window=14
-    )
-    df['ATR'] = atr.average_true_range()
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df['ATR'] = tr.rolling(window=14).mean()
 
     # ========================
     # Bollinger Bands
     # ========================
-    bb = ta.volatility.BollingerBands(df['Close'], window=20, window_dev=2)
-    df['BB_upper'] = bb.bollinger_hband()
-    df['BB_lower'] = bb.bollinger_lband()
+    df['BB_upper'] = df['Close'].rolling(window=20).mean() + 2 * df['Close'].rolling(window=20).std()
+    df['BB_lower'] = df['Close'].rolling(window=20).mean() - 2 * df['Close'].rolling(window=20).std()
 
     return df
 
 def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
     last = df.iloc[-1]
 
-    # Safety checks
+    # Safety check
     required_cols = ['Close', 'EMA200', 'MACD', 'MACD_signal', 'RSI', 'ATR']
     if any(col not in df.columns or pd.isna(last[col]) for col in required_cols):
         return {
@@ -86,4 +92,4 @@ def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
         "stop_loss": round(sl, 5) if sl else None,
         "take_profit": round(tp, 5) if tp else None,
         "reason": f"EMA200 trend + MACD + RSI alignment ({signal})"
-}
+        }
