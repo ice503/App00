@@ -4,6 +4,12 @@ import numpy as np
 def calculate_indicators(df):
     df = df.copy()
 
+    # Ensure we are working with Series, not DataFrames
+    df["Open"] = df["Open"].astype(float)
+    df["High"] = df["High"].astype(float)
+    df["Low"] = df["Low"].astype(float)
+    df["Close"] = df["Close"].astype(float)
+
     # --- EMA ---
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
     df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
@@ -15,10 +21,11 @@ def calculate_indicators(df):
     df["MACD"] = short_ema - long_ema
     df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-    # --- Bollinger Bands ---
+    # --- Bollinger Bands (make sure .std() is Series) ---
     df["BB_Mid"] = df["Close"].rolling(window=20).mean()
-    df["BB_Upper"] = df["BB_Mid"] + 2 * df["Close"].rolling(window=20).std()
-    df["BB_Lower"] = df["BB_Mid"] - 2 * df["Close"].rolling(window=20).std()
+    rolling_std = df["Close"].rolling(window=20).std()
+    df["BB_Upper"] = df["BB_Mid"] + 2 * rolling_std
+    df["BB_Lower"] = df["BB_Mid"] - 2 * rolling_std
 
     # --- ATR ---
     high_low = df["High"] - df["Low"]
@@ -27,19 +34,17 @@ def calculate_indicators(df):
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     df["ATR"] = tr.rolling(window=14).mean()
 
-    # --- RSI (manual, fixed 1D) ---
+    # --- RSI (manual, 1D) ---
     delta = df["Close"].diff().fillna(0)
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
 
-    # Convert to Series explicitly to ensure 1D
     gain = pd.Series(gain, index=df.index)
     loss = pd.Series(loss, index=df.index)
 
     avg_gain = gain.rolling(window=14, min_periods=14).mean()
     avg_loss = loss.rolling(window=14, min_periods=14).mean()
-
-    rs = avg_gain / (avg_loss.replace(0, np.nan))
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     df["RSI"] = 100 - (100 / (1 + rs))
 
     return df
