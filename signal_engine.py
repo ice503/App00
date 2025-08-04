@@ -20,7 +20,7 @@ def calculate_indicators(df):
     df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
     # ========================
-    # RSI (Manual, Flattened Arrays)
+    # RSI (Manual with Flatten)
     # ========================
     delta = df['Close'].diff().values.ravel()
     gain = np.where(delta > 0, delta, 0).ravel()
@@ -51,19 +51,24 @@ def calculate_indicators(df):
     return df
 
 def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
+    """
+    Generates a trading signal with SL/TP suggestion
+    based on EMA, MACD, RSI, and ATR.
+    """
     last = df.iloc[-1]
 
-    # Safety check
+    # Safe check for missing columns or NaN values
     required_cols = ['Close', 'EMA200', 'MACD', 'MACD_signal', 'RSI', 'ATR']
-    if any(col not in df.columns or pd.isna(last[col]) for col in required_cols):
-        return {
-            "signal": "WAIT",
-            "confidence": 50,
-            "entry": None,
-            "stop_loss": None,
-            "take_profit": None,
-            "reason": "Insufficient data for signal calculation"
-        }
+    for col in required_cols:
+        if col not in df.columns or pd.isna(last.get(col)):
+            return {
+                "signal": "WAIT",
+                "confidence": 50,
+                "entry": None,
+                "stop_loss": None,
+                "take_profit": None,
+                "reason": f"Missing or invalid data in '{col}'"
+            }
 
     signal = "WAIT"
     confidence = 50
@@ -75,22 +80,20 @@ def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
         confidence = 70
         sl = entry - (last['ATR'] * atr_multiplier)
         tp = entry + (last['ATR'] * atr_multiplier * rr_ratio)
-
     # Sell Signal
     elif last['Close'] < last['EMA200'] and last['MACD'] < last['MACD_signal'] and last['RSI'] < 50:
         signal = "SELL"
         confidence = 70
         sl = entry + (last['ATR'] * atr_multiplier)
         tp = entry - (last['ATR'] * atr_multiplier * rr_ratio)
-
     else:
         sl, tp = None, None
 
     return {
         "signal": signal,
         "confidence": confidence,
-        "entry": round(entry, 5) if entry is not None else None,
+        "entry": round(entry, 5),
         "stop_loss": round(sl, 5) if sl else None,
         "take_profit": round(tp, 5) if tp else None,
         "reason": f"EMA200 trend + MACD + RSI alignment ({signal})"
-    }
+            }
