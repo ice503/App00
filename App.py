@@ -27,7 +27,7 @@ signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multipli
 # --- Plotly Candlestick ---
 fig = go.Figure()
 
-# Candlestick
+# Candlestick Chart
 fig.add_trace(go.Candlestick(
     x=df.index,
     open=df["Open"],
@@ -48,13 +48,29 @@ fig.add_trace(go.Scatter(x=df.index, y=df["EMA200"], line=dict(color="purple", w
 fig.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], line=dict(color="gray", width=1), name="BB Upper", opacity=0.3))
 fig.add_trace(go.Scatter(x=df.index, y=df["BB_Lower"], line=dict(color="gray", width=1), name="BB Lower", opacity=0.3))
 
-# Layout
+# --- Interactive Layout ---
 fig.update_layout(
     title=f"EUR/USD Live Chart ({interval})",
-    xaxis_rangeslider_visible=False,
+    xaxis_rangeslider_visible=True,   # Enable range slider for zoom
+    xaxis=dict(type='date', rangeslider=dict(visible=True)),
+    dragmode='pan',                   # Allow panning
+    hovermode='x unified',            # Unified hover tooltip
     template="plotly_dark",
     height=700,
-    margin=dict(l=0, r=0, t=40, b=0)
+    margin=dict(l=0, r=0, t=40, b=0),
+)
+
+# Add interactive buttons for Zoom / Reset
+fig.update_layout(
+    xaxis=dict(
+        rangeselector=dict(
+            buttons=list([
+                dict(count=10, label="10", step="all", stepmode="backward"),
+                dict(count=30, label="30", step="all", stepmode="backward"),
+                dict(step="all", label="All")
+            ])
+        )
+    )
 )
 
 # Show Chart
