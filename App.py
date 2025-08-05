@@ -1,69 +1,55 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
-from signal_engine import calculate_indicators, generate_signal
+import pandas as pd
 import plotly.graph_objects as go
+from signal_engine import calculate_indicators, generate_signal
 
-st.set_page_config(page_title="Professional Trading Dashboard", layout="wide")
+st.set_page_config(layout="wide", page_title="📊 Professional Trading Signal Dashboard")
 
 st.title("📊 Professional Trading Signal Dashboard")
-st.write("Welcome! Select a currency pair and timeframe to generate signals.")
 
-# Step 1: Pair & Timeframe selection
-pair = st.selectbox(
-    "Select Currency Pair",
-    ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "XAUUSD=X", "BTC-USD"]
-)
-timeframe = st.selectbox(
-    "Select Timeframe",
-    ["15m", "1h", "4h", "1d"]
-)
-start_date = st.date_input("Start Date", pd.to_datetime("2024-01-01"))
+# Sidebar
+st.sidebar.header("Settings")
+pair = st.sidebar.selectbox("Select Currency Pair", ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X"])
+timeframe = st.sidebar.selectbox("Select Timeframe", ["1h", "30m", "15m"])
+period = st.sidebar.selectbox("Select Data Period", ["5d", "1mo", "3mo"])
 
-# Step 2: Button to load data
-if st.button("🔄 Load Data & Generate Signals"):
-    with st.spinner("Fetching data and calculating indicators..."):
-        # Fetch data
-        data = yf.download(pair, start=start_date, interval=timeframe)
+st.sidebar.markdown("Adjust Risk Management")
+rr_ratio = st.sidebar.slider("Risk-Reward Ratio", 1.0, 3.0, 2.0)
+atr_multiplier = st.sidebar.slider("ATR Multiplier for Stop Loss", 1.0, 3.0, 1.5)
 
-        if data.empty:
-            st.error("No data fetched. Try a different pair or timeframe.")
-        else:
-            # Calculate indicators
-            df = calculate_indicators(data)
+# Load data
+try:
+    data = yf.download(pair, period=period, interval=timeframe)
+    data = data.reset_index()  # Reset index for plotting
+    data.rename(columns={"Open":"Open","High":"High","Low":"Low","Close":"Close"}, inplace=True)
 
-            # Generate signal
-            signal_info = generate_signal(df)
+    if data.empty:
+        st.warning("No data found for this selection.")
+    else:
+        df = calculate_indicators(data)
+        signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
 
-            # Display signal
-            st.subheader(f"Latest Signal for {pair}")
-            st.write(signal_info)
+        st.subheader("Latest Signal")
+        st.write(signal_info)
 
-            # Step 3: Plot candlestick chart
-            fig = go.Figure(data=[go.Candlestick(
-                x=df.index,
-                open=df['Open'],
-                high=df['High'],
-                low=df['Low'],
-                close=df['Close'],
-                name='Candlestick'
-            )])
+        # Candlestick Chart
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(
+            x=df['Datetime'],
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            name='Candlestick'
+        ))
+        fig.update_layout(
+            title=f"Live Candlestick Chart: {pair} ({timeframe})",
+            xaxis_rangeslider_visible=False,
+            template="plotly_dark",
+            height=600
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-            # Add indicators
-            fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], mode='lines', name='EMA20', line=dict(color='blue')))
-            fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], mode='lines', name='EMA50', line=dict(color='orange')))
-            fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], mode='lines', name='EMA200', line=dict(color='green')))
-            fig.add_trace(go.Scatter(x=df.index, y=df['BB_Upper'], mode='lines', name='BB Upper', line=dict(color='gray', dash='dot')))
-            fig.add_trace(go.Scatter(x=df.index, y=df['BB_Lower'], mode='lines', name='BB Lower', line=dict(color='gray', dash='dot')))
-
-            # Layout improvements
-            fig.update_layout(
-                xaxis_rangeslider_visible=False,
-                title=f"{pair} {timeframe} Candlestick Chart with Indicators",
-                yaxis_title="Price",
-                xaxis_title="Date",
-                template="plotly_dark",
-                height=700
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
+except Exception as e:
+    st.error(f"Error: {str(e)}")
