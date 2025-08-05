@@ -16,10 +16,10 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["BB_Upper"] = rolling_mean + (2 * rolling_std)
     df["BB_Lower"] = rolling_mean - (2 * rolling_std)
 
-    # RSI Calculation
-    delta = df["Close"].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
+    # RSI Calculation (flatten arrays to 1D)
+    delta = df["Close"].diff().values.flatten()
+    gain = np.where(delta > 0, delta, 0).flatten()
+    loss = np.where(delta < 0, -delta, 0).flatten()
 
     avg_gain = pd.Series(gain).rolling(window=14).mean()
     avg_loss = pd.Series(loss).rolling(window=14).mean()
@@ -27,12 +27,16 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     rs = avg_gain / avg_loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    # ATR Calculation
-    df["H-L"] = df["High"] - df["Low"]
-    df["H-C"] = abs(df["High"] - df["Close"].shift())
-    df["L-C"] = abs(df["Low"] - df["Close"].shift())
-    df["TR"] = df[["H-L", "H-C", "L-C"]].max(axis=1)
-    df["ATR"] = df["TR"].rolling(window=14).mean()
+    # ATR Calculation (also 1D safe)
+    high = df["High"].values.flatten()
+    low = df["Low"].values.flatten()
+    close = df["Close"].values.flatten()
+
+    hl = high - low
+    hc = np.abs(high - np.roll(close, 1))
+    lc = np.abs(low - np.roll(close, 1))
+    tr = np.max([hl, hc, lc], axis=0)
+    df["ATR"] = pd.Series(tr).rolling(window=14).mean()
 
     df.dropna(inplace=True)
     return df
@@ -58,4 +62,4 @@ def generate_signal(df: pd.DataFrame, rr_ratio=2.0, atr_multiplier=1.5):
         "Last Price": round(last["Close"], 5),
         "Stop Loss": round(stop_loss, 5) if stop_loss else None,
         "Take Profit": round(take_profit, 5) if take_profit else None
-    }
+        }
