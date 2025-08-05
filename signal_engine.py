@@ -22,8 +22,8 @@ def calculate_indicators(df):
 
     # --- RSI (14) ---
     delta = df["Close"].diff().fillna(0)
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
+    gain = np.where(delta > 0, delta, 0).ravel()   # ✅ Flatten to 1D
+    loss = np.where(delta < 0, -delta, 0).ravel()  # ✅ Flatten to 1D
     avg_gain = pd.Series(gain, index=df.index).rolling(window=14).mean()
     avg_loss = pd.Series(loss, index=df.index).rolling(window=14).mean()
     rs = avg_gain / avg_loss
