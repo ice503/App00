@@ -1,7 +1,7 @@
 streamlit
 pandas
 yfinance
-plotly
 ta
 requests
-streamlit-lightweight-charts
+numpy
+streamlit-tradingview-chart
