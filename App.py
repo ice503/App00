@@ -1,22 +1,29 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
-from signal_engine import calculate_indicators, generate_signal
-from streamlit_tradingview_chart import tradingview_chart
+import yfinance as yf
+import datetime
 
-# ---------------------------
-# Streamlit Page Config
-# ---------------------------
-st.set_page_config(page_title="Pro Trading Signals", layout="wide")
+from signal_engine import calculate_indicators, generate_signal
+
+# ------------------ Streamlit UI ------------------
+st.set_page_config(page_title="Pro Forex Signal Dashboard", layout="wide")
 st.title("📊 Professional Trading Signal Dashboard")
 
-# ---------------------------
-# Sidebar Settings
-# ---------------------------
-st.sidebar.header("⚙ Settings")
+# Currency pair selection
+pairs = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "NZD/USD"]
+pair = st.selectbox("Select Currency Pair", pairs)
 
-pairs = {
+# Interval selection
+intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
+interval = st.selectbox("Select Timeframe", intervals)
+
+# Trading parameters
+st.sidebar.header("⚙ Strategy Settings")
+rr_ratio = st.sidebar.slider("Risk/Reward Ratio", 1.0, 5.0, 2.0)
+atr_multiplier = st.sidebar.slider("ATR Multiplier for Stop-Loss", 1.0, 3.0, 1.5)
+
+# ------------------ Fetch Data ------------------
+symbol_map = {
     "EUR/USD": "EURUSD=X",
     "GBP/USD": "GBPUSD=X",
     "USD/JPY": "JPY=X",
@@ -25,66 +32,40 @@ pairs = {
     "USD/CHF": "CHF=X",
     "NZD/USD": "NZDUSD=X"
 }
-pair = st.sidebar.selectbox("Select Currency Pair", list(pairs.keys()))
-symbol = pairs[pair]
-
-interval = st.sidebar.selectbox(
-    "Timeframe", ["1m", "5m", "15m", "1h", "4h", "1d"], index=3
-)
-
-lookback_days = st.sidebar.slider("Historical Days", 7, 90, 30)
-rr_ratio = st.sidebar.slider("Risk-Reward Ratio", 1.0, 5.0, 2.0)
-atr_multiplier = st.sidebar.slider("ATR Multiplier (Stop Loss)", 1.0, 3.0, 1.5)
-
-# ---------------------------
-# Fetch Historical Data
-# ---------------------------
-interval_map = {
-    "1m": "1m",
-    "5m": "5m",
-    "15m": "15m",
-    "1h": "1h",
-    "4h": "4h",
-    "1d": "1d"
-}
 
 data = yf.download(
-    symbol,
-    period=f"{lookback_days}d",
-    interval=interval_map[interval]
+    symbol_map[pair],
+    period="7d",          # Last 7 days
+    interval=interval
 )
 
 if data.empty:
-    st.error("⚠ Could not fetch data. Try a different pair or timeframe.")
+    st.error("⚠ Failed to fetch data. Try another pair or interval.")
     st.stop()
 
-# Reset index to get Open/High/Low/Close properly
-data.reset_index(inplace=True)
-data.rename(columns={"Open":"Open", "High":"High", "Low":"Low", "Close":"Close"}, inplace=True)
+# Ensure required columns exist
+data = data.rename(columns={"Open":"Open","High":"High","Low":"Low","Close":"Close","Volume":"Volume"})
 
-# ---------------------------
-# Calculate Indicators
-# ---------------------------
-df = calculate_indicators(data)
+# ------------------ Calculate Indicators & Signal ------------------
+try:
+    df = calculate_indicators(data)
+    signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
+except Exception as e:
+    st.error(f"Error calculating indicators: {e}")
+    st.stop()
 
-# ---------------------------
-# Generate Signal
-# ---------------------------
-signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
-
-# Display current signal
-st.subheader(f"🎯 Trading Signal for {pair}")
-if signal_info["signal"] != "HOLD":
-    st.success(
-        f"{signal_info['signal']} | SL: {signal_info['stop_loss']} | TP: {signal_info['take_profit']}"
-    )
+# ------------------ Display Signal ------------------
+st.subheader("📢 Trading Signal")
+if signal_info:
+    st.success(f"**Signal:** {signal_info['signal']} | "
+               f"Entry: {signal_info['entry']:.5f} | "
+               f"SL: {signal_info['stop_loss']:.5f} | "
+               f"TP: {signal_info['take_profit']:.5f}")
 else:
-    st.info("No clear signal. Waiting for confluence.")
+    st.info("No clear signal detected based on the current strategy.")
 
-# ---------------------------
-# TradingView-Like Chart
-# ---------------------------
-st.subheader(f"📈 {pair} Live Chart (TradingView Style)")
+# ------------------ TradingView Chart Embed ------------------
+st.subheader(f"📈 Live Chart: {pair} ({interval})")
 
 interval_map_tv = {
     "1m": "1",
@@ -95,17 +76,18 @@ interval_map_tv = {
     "1d": "D"
 }
 
-tradingview_chart(
-    symbol=symbol,
-    interval=interval_map_tv[interval],
-    theme="dark",
-    timezone="Etc/UTC",
-    style="1",          # 1 = candlesticks
-    autosize=True,
-    enable_publishing=False,
-    hide_top_toolbar=False,
-    hide_legend=False,
-    save_image=False
-)
+symbol_map_tv = {
+    "EUR/USD": "FX:EURUSD",
+    "GBP/USD": "FX:GBPUSD",
+    "USD/JPY": "FX:USDJPY",
+    "AUD/USD": "FX:AUDUSD",
+    "USD/CAD": "FX:USDCAD",
+    "USD/CHF": "FX:USDCHF",
+    "NZD/USD": "FX:NZDUSD"
+}
 
-st.caption("💡 Zoom, pan, and fullscreen supported like TradingView.")
+embed_code = f"""
+<iframe src="https://s.tradingview.com/widgetembed/?symbol={symbol_map_tv[pair]}&interval={interval_map_tv[interval]}&theme=dark&style=1&locale=en&toolbarbg=f1f3f6&enable_publishing=false&withdateranges=true&allow_symbol_change=true&save_image=false&studies=[]" 
+width="100%" height="600" frameborder="0" allowfullscreen></iframe>
+"""
+st.markdown(embed_code, unsafe_allow_html=True)
