@@ -1,38 +1,23 @@
 import pandas as pd
 import numpy as np
-import ta  # make sure ta-lib or ta package is installed
 
 def calculate_indicators(df):
+    """
+    Calculate all technical indicators for the dataframe.
+    Required columns: Open, High, Low, Close, Volume
+    """
     df = df.copy()
 
-    # Flatten multi-index columns if any (common with yfinance)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [col[0] for col in df.columns]
-
-    # Rename 'Adj Close' to 'Close' if present
-    if "Adj Close" in df.columns:
-        df.rename(columns={"Adj Close": "Close"}, inplace=True)
-
-    # Check required columns
-    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-    for col in required_cols:
-        if col not in df.columns:
-            raise ValueError(f"Missing required column: {col}")
-
-    # Calculate EMA
+    # EMA Trend Indicators
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
     df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
     df["EMA200"] = df["Close"].ewm(span=200, adjust=False).mean()
 
-    # MACD using ta library
-    macd = ta.trend.MACD(df["Close"], window_slow=26, window_fast=12, window_sign=9)
-    df["MACD"] = macd.macd()
-    df["MACD_Signal"] = macd.macd_signal()
-    df["MACD_Hist"] = macd.macd_diff()
-
-    # RSI
-    rsi_indicator = ta.momentum.RSIIndicator(df["Close"], window=14)
-    df["RSI"] = rsi_indicator.rsi()
+    # MACD
+    ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["Close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["MACD_Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
     # Bollinger Bands
     df["BB_Mid"] = df["Close"].rolling(window=20).mean()
@@ -40,59 +25,65 @@ def calculate_indicators(df):
     df["BB_Upper"] = df["BB_Mid"] + 2 * rolling_std
     df["BB_Lower"] = df["BB_Mid"] - 2 * rolling_std
 
-    # ATR
-    atr_indicator = ta.volatility.AverageTrueRange(df["High"], df["Low"], df["Close"], window=14)
-    df["ATR"] = atr_indicator.average_true_range()
+    # ATR (Volatility)
+    high_low = df["High"] - df["Low"]
+    high_close = np.abs(df["High"] - df["Close"].shift())
+    low_close = np.abs(df["Low"] - df["Close"].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = ranges.max(axis=1)
+    df["ATR"] = true_range.rolling(window=14).mean()
 
-    # Pivot Points (Classic)
+    # RSI (Manual to avoid 2D error)
+    delta = df["Close"].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=14).mean()
+    avg_loss = pd.Series(loss).rolling(window=14).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # Pivot Points
     df["Pivot"] = (df["High"] + df["Low"] + df["Close"]) / 3
     df["R1"] = 2 * df["Pivot"] - df["Low"]
     df["S1"] = 2 * df["Pivot"] - df["High"]
-    df["R2"] = df["Pivot"] + (df["High"] - df["Low"])
-    df["S2"] = df["Pivot"] - (df["High"] - df["Low"])
 
     return df
 
-def generate_signal(df, rr_ratio=2, atr_multiplier=1.5):
-    # Use the last row for signal
-    last = df.iloc[-1]
 
-    required_cols = ["EMA200", "EMA50", "EMA20", "RSI", "MACD", "MACD_Signal", "ATR", "Close"]
+def generate_signals(df, rr_ratio=2, atr_multiplier=1.5):
+    """
+    Generate Buy/Sell/Hold signals for all historical candles.
+    Returns df with a new 'Signal' column.
+    """
+    df = df.copy()
+    df["Signal"] = "HOLD"  # Default
 
-    # Validate presence and non-null values
-    for col in required_cols:
-        if col not in df.columns or pd.isna(last[col]):
-            return "Insufficient data for signal generation."
+    for i in range(len(df)):
+        if i < 50:  # Wait for indicators to initialize
+            continue
 
-    price = last["Close"]
-    ema200 = last["EMA200"]
-    ema50 = last["EMA50"]
-    ema20 = last["EMA20"]
-    rsi = last["RSI"]
-    macd = last["MACD"]
-    macd_signal = last["MACD_Signal"]
-    atr = last["ATR"]
+        price = df["Close"].iloc[i]
+        ema20 = df["EMA20"].iloc[i]
+        ema50 = df["EMA50"].iloc[i]
+        ema200 = df["EMA200"].iloc[i]
+        rsi = df["RSI"].iloc[i]
+        atr = df["ATR"].iloc[i]
 
-    signal = None
-    stop_loss = None
-    take_profit = None
+        # --- Buy Signal Logic ---
+        if price > ema200 and ema20 > ema50 and rsi > 50 and rsi < 70:
+            df["Signal"].iloc[i] = "BUY"
 
-    # Example buy signal logic
-    if price > ema200 and ema20 > ema50 and rsi > 50 and macd > macd_signal:
-        signal = "BUY"
-        stop_loss = price - atr_multiplier * atr
-        take_profit = price + rr_ratio * (price - stop_loss)
+        # --- Sell Signal Logic ---
+        elif price < ema200 and ema20 < ema50 and rsi < 50 and rsi > 30:
+            df["Signal"].iloc[i] = "SELL"
 
-    # Example sell signal logic
-    elif price < ema200 and ema20 < ema50 and rsi < 50 and macd < macd_signal:
-        signal = "SELL"
-        stop_loss = price + atr_multiplier * atr
-        take_profit = price - rr_ratio * (stop_loss - price)
-    else:
-        signal = "HOLD"
+        # Stop-loss and Take-profit can be calculated here if needed
+        # Example for BUY
+        if df["Signal"].iloc[i] == "BUY":
+            df.loc[df.index[i], "StopLoss"] = price - atr * atr_multiplier
+            df.loc[df.index[i], "TakeProfit"] = price + atr * atr_multiplier * rr_ratio
+        elif df["Signal"].iloc[i] == "SELL":
+            df.loc[df.index[i], "StopLoss"] = price + atr * atr_multiplier
+            df.loc[df.index[i], "TakeProfit"] = price - atr * atr_multiplier * rr_ratio
 
-    return {
-        "signal": signal,
-        "stop_loss": round(stop_loss, 5) if stop_loss else None,
-        "take_profit": round(take_profit, 5) if take_profit else None,
-    }
+    return df
