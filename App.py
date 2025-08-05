@@ -1,27 +1,32 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from signal_engine import calculate_indicators, generate_signal
 import plotly.graph_objects as go
+from signal_engine import calculate_indicators, generate_signal
 
-st.set_page_config(page_title="Trading Signal Dashboard", layout="wide")
+st.set_page_config(page_title="Pro Trading Signal Dashboard", layout="wide")
 
 st.title("📊 Professional Trading Signal Dashboard")
+st.markdown("Analyze live EUR/USD 1-hour data with technical indicators and get signals.")
 
-# Choose ticker
-pair = st.selectbox("Select currency pair or asset:", 
-                    ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'AUDUSD=X', 'USDCHF=X', 'USDCAD=X'])
+# Select symbol
+symbol = st.selectbox("Select currency pair:", ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X"], index=0)
+interval = "1h"
+period = "7d"
 
-# Download data: last 7 days, 1h interval
-data = yf.download(pair, period="7d", interval="1h")
+# Download data
+@st.cache_data(ttl=600)
+def load_data(sym, per, intrvl):
+    data = yf.download(sym, period=per, interval=intrvl)
+    return data
 
-st.write("### Raw Data Preview")
-st.dataframe(data.head())
+data = load_data(symbol, period, interval)
 
-st.write("### Data Columns")
-st.write(list(data.columns))
+if data.empty:
+    st.error("No data retrieved. Try again later or change the symbol.")
+    st.stop()
 
-# Calculate indicators (handles column renaming internally)
+# Calculate indicators
 try:
     df = calculate_indicators(data)
 except Exception as e:
@@ -31,37 +36,49 @@ except Exception as e:
 # Generate signal
 signal_info = generate_signal(df)
 
-# Display signal info
-st.write("### Trading Signal")
-st.write(signal_info)
+# Show candlestick chart with indicators
+def plot_candlestick(df):
+    fig = go.Figure()
 
-# Plot candlestick with indicators
-fig = go.Figure()
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
+        name="Candlesticks"
+    ))
 
-fig.add_trace(go.Candlestick(
-    x=df.index,
-    open=df['Open'],
-    high=df['High'],
-    low=df['Low'],
-    close=df['Close'],
-    name="Price"
-))
+    # EMA lines
+    fig.add_trace(go.Scatter(x=df.index, y=df["EMA20"], line=dict(color="blue", width=1), name="EMA20"))
+    fig.add_trace(go.Scatter(x=df.index, y=df["EMA50"], line=dict(color="orange", width=1), name="EMA50"))
+    fig.add_trace(go.Scatter(x=df.index, y=df["EMA200"], line=dict(color="green", width=1), name="EMA200"))
 
-# Add EMA lines
-fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], line=dict(color='blue', width=1), name='EMA20'))
-fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1), name='EMA50'))
-fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='green', width=1), name='EMA200'))
+    # Bollinger Bands
+    fig.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], line=dict(color="gray", width=1, dash='dot'), name="BB Upper", opacity=0.5))
+    fig.add_trace(go.Scatter(x=df.index, y=df["BB_Lower"], line=dict(color="gray", width=1, dash='dot'), name="BB Lower", opacity=0.5))
 
-# Add Bollinger Bands
-fig.add_trace(go.Scatter(x=df.index, y=df['BB_Upper'], line=dict(color='grey', width=1, dash='dash'), name='BB Upper'))
-fig.add_trace(go.Scatter(x=df.index, y=df['BB_Lower'], line=dict(color='grey', width=1, dash='dash'), name='BB Lower'))
+    fig.update_layout(
+        title=f"{symbol} Price Chart with Indicators",
+        xaxis_title="Date",
+        yaxis_title="Price",
+        xaxis_rangeslider_visible=False,
+        height=600,
+        template="plotly_dark",
+        hovermode="x unified"
+    )
+    return fig
 
-fig.update_layout(
-    title=f"{pair} 1H Chart with Indicators",
-    xaxis_title="Date",
-    yaxis_title="Price",
-    xaxis_rangeslider_visible=False,
-    height=700
-)
-
+fig = plot_candlestick(df)
 st.plotly_chart(fig, use_container_width=True)
+
+# Show latest signal info
+st.markdown("## Latest Trade Signal")
+st.write(f"**Signal:** {signal_info['signal']}")
+if signal_info["signal"] in ["BUY", "SELL"]:
+    st.write(f"**Stop Loss:** {signal_info['stop_loss']}")
+    st.write(f"**Take Profit:** {signal_info['take_profit']}")
+
+# Show raw data toggle
+if st.checkbox("Show raw data"):
+    st.dataframe(df.tail(20))
