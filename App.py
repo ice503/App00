@@ -56,14 +56,15 @@ def generate_signals(df):
     signals.insert(0,"HOLD")
     df['Signal'] = signals
 
-    # Stop Loss and Take Profit
-    df['Stop_Loss'] = df.apply(lambda x: x['Close']*0.998 if x['Signal']=="BUY"
-                               else x['Close']*1.002 if x['Signal']=="SELL"
-                               else None, axis=1)
+    # Stop Loss and Take Profit (vectorized, safe for Cloud)
+    df['Stop_Loss'] = None
+    df['Take_Profit'] = None
 
-    df['Take_Profit'] = df.apply(lambda x: x['Close']*1.004 if x['Signal']=="BUY"
-                                 else x['Close']*0.996 if x['Signal']=="SELL"
-                                 else None, axis=1)
+    df.loc[df['Signal']=="BUY", 'Stop_Loss'] = df['Close']*0.998
+    df.loc[df['Signal']=="BUY", 'Take_Profit'] = df['Close']*1.004
+
+    df.loc[df['Signal']=="SELL", 'Stop_Loss'] = df['Close']*1.002
+    df.loc[df['Signal']=="SELL", 'Take_Profit'] = df['Close']*0.996
 
     # Trade result simulation for accuracy
     trade_results = []
