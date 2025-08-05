@@ -1,82 +1,125 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import yfinance as yf
+import ta
 import plotly.graph_objects as go
-from signal_engine import calculate_indicators, generate_signal
 
-st.set_page_config(page_title="📊 Professional Trading Signal Dashboard", layout="wide")
+st.set_page_config(page_title="Multi-Forex Signal Dashboard", layout="wide")
 
-st.title("📊 Professional Trading Signal Dashboard")
+# -----------------------------
+# Sidebar Configuration
+# -----------------------------
+st.sidebar.title("Forex Multi-Pair Scanner")
 
-# Sidebar for settings
-st.sidebar.header("Settings")
-symbol = st.sidebar.selectbox(
-    "Choose Currency Pair",
-    ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X", "XAUUSD=X", "BTC-USD"],
-    index=0
+pairs = st.sidebar.multiselect(
+    "Select Currency Pairs:",
+    ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","XAUUSD=X"],
+    default=["EURUSD=X","GBPUSD=X","USDJPY=X"]
 )
-interval = st.sidebar.selectbox("Time Interval", ["1h", "30m", "15m", "1d"], index=0)
-lookback = st.sidebar.slider("Candles to load", min_value=100, max_value=1000, value=500, step=50)
-rr_ratio = st.sidebar.slider("Risk/Reward Ratio", min_value=1.0, max_value=5.0, value=2.0, step=0.5)
-atr_multiplier = st.sidebar.slider("ATR Multiplier for Stop Loss", 0.5, 5.0, 1.5, 0.1)
 
-# Determine period for Yahoo Finance
-intraday_intervals = ["1m","2m","5m","15m","30m","60m","90m","1h"]
-period = "60d" if interval in intraday_intervals else "2y"
+period = st.sidebar.selectbox("Data Period:", ["1d","5d","1mo","3mo"], index=0)
+interval = st.sidebar.selectbox("Candle Interval:", ["5m","15m","30m","1h","4h"], index=2)
+st.sidebar.info("Signals use RSI+MACD+EMA | SL 20 pips | TP 40 pips")
 
-# Fetch data
-try:
-    data = yf.download(tickers=symbol, period=period, interval=interval)
-    data.dropna(inplace=True)
+# -----------------------------
+# Helper Functions
+# -----------------------------
+@st.cache_data
+def get_data(pair, period, interval):
+    df = yf.download(pair, period=period, interval=interval)
+    df.dropna(inplace=True)
+    return df
 
-    # Fallback: if no data retrieved
-    if data.empty:
-        st.warning("⚠ No data retrieved with selected interval. Switching to 1d interval.")
-        interval = "1d"
-        period = "2y"
-        data = yf.download(tickers=symbol, period=period, interval=interval)
-        data.dropna(inplace=True)
+def generate_signals(df):
+    # Indicators
+    df['RSI'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
+    macd = ta.trend.MACD(df['Close'])
+    df['MACD'] = macd.macd()
+    df['Signal_Line'] = macd.macd_signal()
+    df['EMA50'] = ta.trend.EMAIndicator(df['Close'], window=50).ema_indicator()
+    df['EMA200'] = ta.trend.EMAIndicator(df['Close'], window=200).ema_indicator()
 
-    if data.empty:
-        st.error("❌ Still no data retrieved. Try another symbol or interval.")
-        st.stop()
+    # Signals
+    signals = []
+    for i in range(1, len(df)):
+        if df['RSI'][i] < 30 and df['EMA50'][i] > df['EMA200'][i] and df['MACD'][i] > df['Signal_Line'][i]:
+            signals.append("BUY")
+        elif df['RSI'][i] > 70 and df['EMA50'][i] < df['EMA200'][i] and df['MACD'][i] < df['Signal_Line'][i]:
+            signals.append("SELL")
+        else:
+            signals.append("HOLD")
+    signals.insert(0,"HOLD")
+    df['Signal'] = signals
 
-    # Keep only the last N rows for display
-    data = data.tail(lookback)
+    # Simulate SL/TP for last signal
+    df['Entry_Price'] = df['Close'].where(df['Signal'].isin(['BUY','SELL']))
+    df['Stop_Loss'] = df['Entry_Price'] * (0.998 if df['Signal'].eq('BUY').iloc[-1] else 1.002)
+    df['Take_Profit'] = df['Entry_Price'] * (1.004 if df['Signal'].eq('BUY').iloc[-1] else 0.996)
 
-    # Calculate indicators and signals
-    df = calculate_indicators(data)
-    signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
+    # Simple accuracy calculation (backtest)
+    trade_results = []
+    for i in range(len(df)):
+        if df['Signal'][i] in ['BUY','SELL']:
+            if df['Signal'][i] == 'BUY':
+                if df['High'][i:].max() >= df['Take_Profit'][i]:
+                    trade_results.append("Win")
+                elif df['Low'][i:].min() <= df['Stop_Loss'][i]:
+                    trade_results.append("Loss")
+                else:
+                    trade_results.append("Open")
+            else:
+                if df['Low'][i:].min() <= df['Take_Profit'][i]:
+                    trade_results.append("Win")
+                elif df['High'][i:].max() >= df['Stop_Loss'][i]:
+                    trade_results.append("Loss")
+                else:
+                    trade_results.append("Open")
+        else:
+            trade_results.append(None)
+    df['Result'] = trade_results
+    accuracy = round((df['Result'].value_counts().get('Win',0) / max(1,len(df[df['Signal'].isin(['BUY','SELL'])]))) * 100,2)
 
-    # Candlestick chart with Plotly
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
-        name="Candlestick"
-    ))
+    return df, accuracy
 
-    # Add EMAs
-    if "EMA20" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA20"], line=dict(color="blue", width=1), name="EMA20"))
-    if "EMA50" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA50"], line=dict(color="orange", width=1), name="EMA50"))
-    if "EMA200" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA200"], line=dict(color="purple", width=1), name="EMA200"))
+# -----------------------------
+# Multi-Pair Scanning
+# -----------------------------
+signal_summary = []
 
-    fig.update_layout(
-        title=f"📈 Live Chart: {symbol} ({interval})",
-        xaxis_rangeslider_visible=False,
-        xaxis=dict(type='category'),
-        template="plotly_dark",
-        height=700
-    )
+for pair in pairs:
+    df = get_data(pair, period, interval)
+    df, acc = generate_signals(df)
+    latest_signal = df['Signal'].iloc[-1]
+    latest_price = round(df['Close'].iloc[-1],5)
+    signal_summary.append([pair, latest_signal, latest_price, acc])
 
-    st.plotly_chart(fig, use_container_width=True)
+summary_df = pd.DataFrame(signal_summary, columns=["Pair","Signal","Last Price","Accuracy %"])
 
-    # Show last signal
-    st.subheader("📢 Latest Signal")
-    st.write(signal_info)
+st.title("📊 Multi-Forex Signal Dashboard")
+st.dataframe(summary_df, use_container_width=True)
 
-except Exception as e:
-    st.error(f"Error fetching or processing data: {str(e)}")
+# -----------------------------
+# Detailed View for Selected Pair
+# -----------------------------
+st.subheader("Detailed Pair Analysis")
+selected_pair = st.selectbox("Select a pair for chart & history:", pairs)
+
+df = get_data(selected_pair, period, interval)
+df, acc = generate_signals(df)
+
+# Candlestick with signals
+fig = go.Figure()
+fig.add_trace(go.Candlestick(
+    x=df.index, open=df['Open'], high=df['High'],
+    low=df['Low'], close=df['Close'],
+    name='Candles'
+))
+buy_signals = df[df['Signal']=="BUY"]
+sell_signals = df[df['Signal']=="SELL"]
+fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', marker=dict(color='green', size=10), name='Buy'))
+fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', marker=dict(color='red', size=10), name='Sell'))
+fig.update_layout(height=600, xaxis_rangeslider_visible=False)
+
+st.plotly_chart(fig, use_container_width=True)
+st.write("Recent Trade History")
+st.dataframe(df[['Close','RSI','MACD','Signal','Result']].tail(20))
