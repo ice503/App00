@@ -16,7 +16,7 @@ def calculate_indicators(df):
 
     # --- Bollinger Bands (20,2) ---
     df["BB_Mid"] = df["Close"].rolling(window=20).mean()
-    rolling_std = df["Close"].rolling(window=20).std()
+    rolling_std = df["Close"].rolling(window=20).std().squeeze()  # ✅ Ensure 1D
     df["BB_Upper"] = df["BB_Mid"] + 2 * rolling_std
     df["BB_Lower"] = df["BB_Mid"] - 2 * rolling_std
 
