@@ -4,10 +4,25 @@ import numpy as np
 def calculate_indicators(df):
     df = df.copy()
 
-    # --- Ensure columns are 1D Series ---
-    df["Close"] = df["Close"].squeeze()
-    df["High"] = df["High"].squeeze()
-    df["Low"] = df["Low"].squeeze()
+    # Flatten multi-index columns if present (e.g., from yfinance)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ['_'.join(col).strip() for col in df.columns.values]
+
+    # Rename columns for consistency if needed
+    rename_map = {
+        "Adj Close": "Close",
+        "Close": "Close",
+        "High": "High",
+        "Low": "Low",
+        "Open": "Open",
+        "Volume": "Volume"
+    }
+    df.rename(columns=lambda x: rename_map.get(x, x), inplace=True)
+
+    # Ensure essential columns exist and are 1D Series
+    for col in ["Close", "High", "Low"]:
+        if col in df.columns:
+            df[col] = df[col].squeeze()
 
     # --- Trend Indicators (EMA) ---
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
@@ -16,14 +31,14 @@ def calculate_indicators(df):
 
     # --- Bollinger Bands (20,2) ---
     df["BB_Mid"] = df["Close"].rolling(window=20).mean()
-    rolling_std = df["Close"].rolling(window=20).std().squeeze()  # ✅ Ensure 1D
+    rolling_std = df["Close"].rolling(window=20).std().squeeze()  # Ensure 1D
     df["BB_Upper"] = df["BB_Mid"] + 2 * rolling_std
     df["BB_Lower"] = df["BB_Mid"] - 2 * rolling_std
 
     # --- RSI (14) ---
     delta = df["Close"].diff().fillna(0)
-    gain = np.where(delta > 0, delta, 0).ravel()   # ✅ Flatten to 1D
-    loss = np.where(delta < 0, -delta, 0).ravel()  # ✅ Flatten to 1D
+    gain = np.where(delta > 0, delta, 0).ravel()   # Flatten to 1D
+    loss = np.where(delta < 0, -delta, 0).ravel()  # Flatten to 1D
     avg_gain = pd.Series(gain, index=df.index).rolling(window=14).mean()
     avg_loss = pd.Series(loss, index=df.index).rolling(window=14).mean()
     rs = avg_gain / avg_loss
@@ -64,7 +79,7 @@ def generate_signal(df, rr_ratio=2.0, atr_multiplier=1.5):
     """Generate a trading signal with SL and TP suggestions"""
     last = df.iloc[-1]
 
-    # --- Determine Trend ---
+    # Determine Trend
     if last["EMA20"] > last["EMA50"] and last["EMA50"] > last["EMA200"]:
         trend = "Bullish"
     elif last["EMA20"] < last["EMA50"] and last["EMA50"] < last["EMA200"]:
@@ -72,7 +87,7 @@ def generate_signal(df, rr_ratio=2.0, atr_multiplier=1.5):
     else:
         trend = "Sideways"
 
-    # --- Base Signal ---
+    # Base Signal
     signal = "Hold"
     reason = "No clear signal"
     confidence = 50
@@ -91,7 +106,7 @@ def generate_signal(df, rr_ratio=2.0, atr_multiplier=1.5):
         if last["Vol_Breakout"]:
             confidence += 10
 
-    # --- Stop-Loss & Take-Profit Suggestion ---
+    # Stop-Loss & Take-Profit Suggestion
     entry_price = last["Close"]
     atr = last["ATR"]
     stop_loss = None
