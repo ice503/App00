@@ -1,71 +1,102 @@
-import streamlit as st
-import yfinance as yf
-import plotly.graph_objects as go
-from signal_engine import calculate_indicators, generate_signal
+import pandas as pd
+import numpy as np
 
-st.set_page_config(page_title="📊 Professional Trading Signal Dashboard", layout="wide")
+def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate all indicators safely and prevent empty DataFrame issues."""
+    if df.empty:
+        raise ValueError("Downloaded data is empty. Check the symbol or interval.")
 
-st.title("📊 Professional Trading Signal Dashboard")
+    # Reset index to ensure numeric indexing
+    df = df.copy().reset_index(drop=True)
 
-# --- Sidebar controls ---
-st.sidebar.header("Settings")
-pair = st.sidebar.selectbox("Currency Pair", ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X"])
-period = st.sidebar.selectbox("Period", ["1d","5d","1mo","3mo"])
-interval = st.sidebar.selectbox("Interval", ["1h","30m","15m","5m","1d"])
+    # Ensure required columns exist
+    for col in ["Open", "High", "Low", "Close", "Volume"]:
+        if col not in df.columns:
+            raise ValueError(f"Missing required column: {col}")
 
-rr_ratio = st.sidebar.slider("Risk/Reward Ratio", 1.0, 5.0, 2.0, 0.1)
-atr_multiplier = st.sidebar.slider("ATR Multiplier (for Stop Loss)", 0.5, 3.0, 1.5, 0.1)
+    # --- Moving Averages ---
+    df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
+    df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
+    df["EMA200"] = df["Close"].ewm(span=200, adjust=False).mean()
 
-# --- Fetch Data ---
-data = yf.download(pair, period=period, interval=interval)
+    # --- Bollinger Bands ---
+    df["BB_Mid"] = df["Close"].rolling(window=20).mean()
+    rolling_std = df["Close"].rolling(window=20).std()
+    df["BB_Upper"] = df["BB_Mid"] + (2 * rolling_std)
+    df["BB_Lower"] = df["BB_Mid"] - (2 * rolling_std)
 
-if data.empty:
-    st.error("No data found for this pair and timeframe.")
-    st.stop()
+    # --- RSI ---
+    delta = df["Close"].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
 
-data.reset_index(inplace=True)
-data.rename(columns={
-    'Open': 'Open',
-    'High': 'High',
-    'Low': 'Low',
-    'Close': 'Close'
-}, inplace=True)
+    gain_series = pd.Series(gain.flatten() if gain.ndim > 1 else gain)
+    loss_series = pd.Series(loss.flatten() if loss.ndim > 1 else loss)
 
-# --- Calculate Indicators ---
-df = calculate_indicators(data)
+    avg_gain = gain_series.rolling(window=14).mean()
+    avg_loss = loss_series.rolling(window=14).mean()
+    rs = avg_gain / (avg_loss.replace(0, np.nan))
+    df["RSI"] = 100 - (100 / (1 + rs))
 
-# --- Generate Signal ---
-signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
+    # --- ATR (Average True Range) ---
+    high_low = df["High"] - df["Low"]
+    high_close = (df["High"] - df["Close"].shift()).abs()
+    low_close = (df["Low"] - df["Close"].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df["ATR"] = tr.rolling(window=14).mean()
 
-st.subheader(f"Latest Signal for {pair}")
-st.write(signal_info)
+    # --- Pivot Points (Daily style) ---
+    df["Pivot"] = (df["High"] + df["Low"] + df["Close"]) / 3
+    df["R1"] = 2 * df["Pivot"] - df["Low"]
+    df["S1"] = 2 * df["Pivot"] - df["High"]
 
-# --- Candlestick Chart with Plotly (Interactive) ---
-fig = go.Figure(data=[
-    go.Candlestick(
-        x=df['Datetime'],
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
-        name="Candlestick"
-    )
-])
+    # Drop only leading NaN rows, keep last row for signals
+    df = df.dropna().reset_index(drop=True)
 
-# Add EMA lines
-fig.add_trace(go.Scatter(x=df['Datetime'], y=df['EMA20'], line=dict(color='blue', width=1), name='EMA20'))
-fig.add_trace(go.Scatter(x=df['Datetime'], y=df['EMA50'], line=dict(color='orange', width=1), name='EMA50'))
-fig.add_trace(go.Scatter(x=df['Datetime'], y=df['EMA200'], line=dict(color='red', width=1), name='EMA200'))
+    if df.empty:
+        raise ValueError("Indicators removed all rows. Use longer period or smaller indicators.")
 
-# Add Bollinger Bands
-fig.add_trace(go.Scatter(x=df['Datetime'], y=df['BB_Upper'], line=dict(color='gray', width=1, dash='dot'), name='BB Upper'))
-fig.add_trace(go.Scatter(x=df['Datetime'], y=df['BB_Lower'], line=dict(color='gray', width=1, dash='dot'), name='BB Lower'))
+    return df
 
-fig.update_layout(
-    xaxis_rangeslider_visible=False,
-    template='plotly_dark',
-    height=700,
-    hovermode='x unified'
-)
 
-st.plotly_chart(fig, use_container_width=True)
+def generate_signal(df: pd.DataFrame, rr_ratio: float = 2.0, atr_multiplier: float = 1.5) -> str:
+    """Generate buy/sell signal based on last row of indicators."""
+    if df.empty:
+        return "No data available to generate signal."
+
+    last = df.iloc[-1]
+
+    # Required indicators
+    required_cols = ["Close", "EMA20", "EMA50", "EMA200", "RSI", "ATR"]
+    for col in required_cols:
+        if col not in df.columns:
+            return f"Missing required column for signal: {col}"
+        if pd.isna(last[col]):
+            return "Not enough data to generate signal yet."
+
+    price = last["Close"]
+    ema20, ema50, ema200 = last["EMA20"], last["EMA50"], last["EMA200"]
+    rsi = last["RSI"]
+    atr = last["ATR"]
+
+    signal = "No trade"
+    stop_loss, take_profit = None, None
+
+    # --- Buy Signal ---
+    if price > ema200 and ema20 > ema50 and rsi > 50:
+        signal = "BUY"
+        stop_loss = price - (atr * atr_multiplier)
+        take_profit = price + (atr * atr_multiplier * rr_ratio)
+
+    # --- Sell Signal ---
+    elif price < ema200 and ema20 < ema50 and rsi < 50:
+        signal = "SELL"
+        stop_loss = price + (atr * atr_multiplier)
+        take_profit = price - (atr * atr_multiplier * rr_ratio)
+
+    return f"""
+Signal: {signal}
+Price: {price:.5f}
+Stop Loss: {stop_loss:.5f if stop_loss else 0}
+Take Profit: {take_profit:.5f if take_profit else 0}
+"""
