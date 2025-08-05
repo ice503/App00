@@ -4,11 +4,22 @@ import plotly.graph_objects as go
 from signal_engine import calculate_indicators, generate_signal
 
 st.set_page_config(layout="wide")
-st.title("📊 Professional EUR/USD Trading Dashboard")
+st.title("📊 Professional Multi-Currency Trading Dashboard")
 
-# --- Settings ---
-symbol = "EURUSD=X"
+# --- Sidebar Settings ---
 st.sidebar.header("Chart Settings")
+
+currency_pairs = {
+    "EUR/USD": "EURUSD=X",
+    "GBP/USD": "GBPUSD=X",
+    "USD/JPY": "JPY=X",
+    "AUD/USD": "AUDUSD=X",
+    "USD/CAD": "CAD=X"
+}
+
+pair_name = st.sidebar.selectbox("Select Currency Pair", list(currency_pairs.keys()))
+symbol = currency_pairs[pair_name]
+
 period = st.sidebar.selectbox("Data Period", ["5d", "1mo", "3mo"], index=0)
 interval = st.sidebar.selectbox("Timeframe", ["1h", "30m", "15m"], index=0)
 rr_ratio = st.sidebar.slider("Risk/Reward Ratio", 1.0, 5.0, 2.0)
@@ -24,10 +35,10 @@ if data.empty:
 df = calculate_indicators(data)
 signal_info = generate_signal(df, rr_ratio=rr_ratio, atr_multiplier=atr_multiplier)
 
-# --- Plotly Candlestick ---
+# --- Plotly Candlestick Chart ---
 fig = go.Figure()
 
-# Candlestick Chart
+# Candlestick
 fig.add_trace(go.Candlestick(
     x=df.index,
     open=df["Open"],
@@ -50,34 +61,20 @@ fig.add_trace(go.Scatter(x=df.index, y=df["BB_Lower"], line=dict(color="gray", w
 
 # --- Interactive Layout ---
 fig.update_layout(
-    title=f"EUR/USD Live Chart ({interval})",
-    xaxis_rangeslider_visible=True,   # Enable range slider for zoom
-    xaxis=dict(type='date', rangeslider=dict(visible=True)),
-    dragmode='pan',                   # Allow panning
-    hovermode='x unified',            # Unified hover tooltip
+    title=f"{pair_name} Live Chart ({interval})",
+    xaxis_rangeslider_visible=True,
+    dragmode='pan',
+    hovermode='x unified',
     template="plotly_dark",
     height=700,
-    margin=dict(l=0, r=0, t=40, b=0),
-)
-
-# Add interactive buttons for Zoom / Reset
-fig.update_layout(
-    xaxis=dict(
-        rangeselector=dict(
-            buttons=list([
-                dict(count=10, label="10", step="all", stepmode="backward"),
-                dict(count=30, label="30", step="all", stepmode="backward"),
-                dict(step="all", label="All")
-            ])
-        )
-    )
+    margin=dict(l=0, r=0, t=40, b=0)
 )
 
 # Show Chart
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Trading Signal ---
-st.subheader("📈 Latest Trading Signal")
+st.subheader(f"📈 Latest Trading Signal for {pair_name}")
 st.write(f"**Signal:** {signal_info['signal']} ({signal_info['confidence']}% confidence)")
 st.write(f"**Entry:** {signal_info['entry']:.5f}")
 if signal_info['stop_loss']:
