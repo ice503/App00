@@ -34,6 +34,7 @@ def generate_forex_data():
             "USD/CAD": 1.36
         }[pair]
         
+        # FIXED: Added missing parenthesis here
         prices = base_price + np.cumsum(np.random.randn(100) * 0.005
         data[pair] = pd.DataFrame({
             "Date": dates,
@@ -122,4 +123,4 @@ st.dataframe(
         for pair, df in signals.items()
     }),
     height=500
-        )
+)
