@@ -2,44 +2,54 @@ import pandas as pd
 import numpy as np
 
 def calculate_indicators(df):
-    # MACD
+    # Calculate MACD
     exp1 = df['Close'].ewm(span=12, adjust=False).mean()
     exp2 = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = exp1 - exp2
     df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
-    # RSI
+    # Calculate RSI
     delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    gain = delta.where(delta > 0, 0).rolling(window=14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
 
-    # Bollinger Bands
+    # Calculate Bollinger Bands
     df['20_MA'] = df['Close'].rolling(window=20).mean()
     df['20_STD'] = df['Close'].rolling(window=20).std()
-    df['Upper_BB'] = df['20_MA'] + (df['20_STD'] * 2)
-    df['Lower_BB'] = df['20_MA'] - (df['20_STD'] * 2)
+    df['Upper_BB'] = df['20_MA'] + (2 * df['20_STD'])
+    df['Lower_BB'] = df['20_MA'] - (2 * df['20_STD'])
 
     return df
 
 def generate_signals(df):
     df = df.copy()
 
-    # Drop rows with NaN in key indicator columns to avoid errors
-    df = df.dropna(subset=['MACD', 'Signal_Line', 'RSI', 'Lower_BB', 'Upper_BB'])
+    required_cols = ['MACD', 'Signal_Line', 'RSI', 'Lower_BB', 'Upper_BB']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise KeyError(f"Missing columns for signal generation: {missing_cols}")
 
-    df['Buy'] = (
+    # Drop rows with NaN in these columns to avoid errors
+    df = df.dropna(subset=required_cols + ['Close'])
+
+    # Buy signal conditions
+    buy_condition = (
         (df['MACD'] > df['Signal_Line']) & (df['MACD'].shift(1) <= df['Signal_Line'].shift(1)) &
         (df['RSI'] < 30) &
         (df['Close'] <= df['Lower_BB'])
-    ).fillna(False)
+    )
 
-    df['Sell'] = (
+    # Sell signal conditions
+    sell_condition = (
         (df['MACD'] < df['Signal_Line']) & (df['MACD'].shift(1) >= df['Signal_Line'].shift(1)) &
         (df['RSI'] > 70) &
         (df['Close'] >= df['Upper_BB'])
-    ).fillna(False)
+    )
+
+    df['Buy'] = buy_condition.fillna(False)
+    df['Sell'] = sell_condition.fillna(False)
 
     df['Signal'] = 0
     df.loc[df['Buy'], 'Signal'] = 1
@@ -68,8 +78,7 @@ def backtest_signals(df):
             position_open = False
 
     total_return = np.prod([1 + r for r in returns]) - 1 if returns else 0
-    win_trades = sum([1 for r in returns if r > 0])
-    loss_trades = sum([1 for r in returns if r <= 0])
+    win_trades = sum(1 for r in returns if r > 0)
     total_trades = len(returns)
 
     return {
