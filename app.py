@@ -3,25 +3,47 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
-# --- App Title ---
+# --- App Config ---
 st.set_page_config(layout="wide")
-st.title("📈 Forex Trading Signals")
-st.write("Basic signal generator using moving averages")
+st.title("💱 Multi-Currency Forex Signals")
+st.write("Real-time trading signals for major currency pairs")
 
-# --- Generate Fake Data ---
+# --- Available Forex Pairs ---
+FOREX_PAIRS = {
+    "EUR/USD": "Euro vs US Dollar",
+    "GBP/USD": "British Pound vs US Dollar",
+    "USD/JPY": "US Dollar vs Japanese Yen",
+    "AUD/USD": "Australian Dollar vs US Dollar",
+    "USD/CAD": "US Dollar vs Canadian Dollar"
+}
+
+# --- Generate Fake Data for All Pairs ---
 @st.cache_data
-def load_data():
+def generate_forex_data():
     np.random.seed(42)
     dates = pd.date_range(end=datetime.today(), periods=100)
-    prices = np.cumsum(np.random.randn(100) * 0.01 + 1.0)
-    df = pd.DataFrame({"Date": dates, "EUR/USD": prices})
-    df["High"] = df["EUR/USD"] + 0.002
-    df["Low"] = df["EUR/USD"] - 0.002
-    return df
+    data = {}
+    
+    for pair in FOREX_PAIRS:
+        # Generate realistic price ranges for each pair
+        base_price = {
+            "EUR/USD": 1.08,
+            "GBP/USD": 1.26,
+            "USD/JPY": 151.50,
+            "AUD/USD": 0.66,
+            "USD/CAD": 1.36
+        }[pair]
+        
+        prices = base_price + np.cumsum(np.random.randn(100) * 0.005
+        data[pair] = pd.DataFrame({
+            "Date": dates,
+            "Price": prices,
+            "High": prices + 0.002,
+            "Low": prices - 0.002
+        })
+    return data
 
-df = load_data()
-
-# --- Calculate Indicators (Pure Python) ---
+# --- Technical Indicators (Pure Python) ---
 def calculate_sma(series, window):
     return series.rolling(window=window).mean()
 
@@ -34,33 +56,66 @@ def calculate_rsi(series, window=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-df["MA_Short"] = calculate_sma(df["EUR/USD"], 10)
-df["MA_Long"] = calculate_sma(df["EUR/USD"], 50)
-df["RSI"] = calculate_rsi(df["EUR/USD"])
+# --- Generate Signals for All Pairs ---
+def generate_signals(forex_data):
+    signals = {}
+    for pair, df in forex_data.items():
+        df = df.copy()
+        df["MA_Short"] = calculate_sma(df["Price"], 10)
+        df["MA_Long"] = calculate_sma(df["Price"], 50)
+        df["RSI"] = calculate_rsi(df["Price"])
+        
+        df["Signal"] = 0
+        df.loc[(df["RSI"] < 30) & (df["MA_Short"] > df["MA_Long"]), "Signal"] = 1
+        df.loc[(df["RSI"] > 70) & (df["MA_Short"] < df["MA_Long"]), "Signal"] = -1
+        
+        # Dynamic stop levels (1.5% risk)
+        df["Stop_Loss"] = np.where(
+            df["Signal"] == 1,
+            df["Price"] * 0.985,
+            df["Price"] * 1.015
+        )
+        df["Take_Profit"] = np.where(
+            df["Signal"] == 1,
+            df["Price"] * 1.02,
+            df["Price"] * 0.98
+        )
+        signals[pair] = df
+    return signals
 
-# --- Generate Signals ---
-df["Signal"] = 0
-df.loc[(df["RSI"] < 30) & (df["MA_Short"] > df["MA_Long"]), "Signal"] = 1  # Buy
-df.loc[(df["RSI"] > 70) & (df["MA_Short"] < df["MA_Long"]), "Signal"] = -1  # Sell
-
-# --- Simple Risk Management ---
-df["Stop_Loss"] = df["EUR/USD"] * 0.995
-df["Take_Profit"] = df["EUR/USD"] * 1.005
-
-# --- UI ---
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("🔔 Latest Signal")
+# --- UI Components ---
+def display_pair_signals(pair, df):
     latest = df.iloc[-1]
-    signal = "🟢 BUY" if latest["Signal"] == 1 else "🔴 SELL" if latest["Signal"] == -1 else "⚪ HOLD"
-    st.metric("EUR/USD", f"{latest['EUR/USD']:.5f}", delta=signal)
-    st.write(f"Stop Loss: {latest['Stop_Loss']:.5f}")
-    st.write(f"Take Profit: {latest['Take_Profit']:.5f}")
+    signal_emoji = "🟢 BUY" if latest["Signal"] == 1 else "🔴 SELL" if latest["Signal"] == -1 else "⚪ HOLD"
+    
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        st.metric(pair, f"{latest['Price']:.5f}", delta=signal_emoji)
+        st.caption(f"SL: {latest['Stop_Loss']:.5f}")
+        st.caption(f"TP: {latest['Take_Profit']:.5f}")
+    with col2:
+        st.line_chart(df.set_index("Date")["Price"])
 
-with col2:
-    st.subheader("📊 Price Chart")
-    st.line_chart(df.set_index("Date")["EUR/USD"])
+# --- Main App ---
+forex_data = generate_forex_data()
+signals = generate_signals(forex_data)
 
-st.subheader("📜 Signal History")
-st.dataframe(df.tail(10)[["Date", "EUR/USD", "Signal", "Stop_Loss", "Take_Profit"]])
+selected_pair = st.selectbox("Select Currency Pair", list(FOREX_PAIRS.keys()), format_func=lambda x: f"{x} ({FOREX_PAIRS[x]})")
+
+st.header(f"{selected_pair} Analysis")
+display_pair_signals(selected_pair, signals[selected_pair])
+
+st.header("📊 All Pair Signals")
+for pair in FOREX_PAIRS:
+    expander = st.expander(f"{pair} Summary")
+    with expander:
+        display_pair_signals(pair, signals[pair])
+
+st.header("📜 Signal History")
+st.dataframe(
+    pd.concat({
+        pair: df.tail(3)[["Date", "Price", "Signal", "Stop_Loss", "Take_Profit"]]
+        for pair, df in signals.items()
+    }),
+    height=500
+    )
