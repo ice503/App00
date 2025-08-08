@@ -1,61 +1,57 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
-import ta
+import pandas as pd
+import matplotlib.pyplot as plt
+import strategy
 
-def get_data(symbol, period="3mo", interval="1d"):
-    df = yf.download(symbol, period=period, interval=interval)
+st.set_page_config(page_title="Trading Signal App", layout="wide")
 
-    # Flatten multi-index columns if exist
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [' '.join(col).strip() for col in df.columns.values]
+st.title("Trading Signal App with MACD, RSI & Bollinger Bands")
 
-    df = df.reset_index()
+ticker = st.text_input("Enter ticker symbol (e.g. AAPL, TSLA, MSFT):", value="AAPL")
+period = st.selectbox("Select data period:", ['1mo', '3mo', '6mo', '1y', '2y', '5y', '10y'], index=3)
 
-    wanted_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-    existing_cols = [col for col in wanted_cols if col in df.columns]
-    df = df[existing_cols]
+if ticker:
+    with st.spinner(f"Downloading data for {ticker}..."):
+        df = yf.download(ticker, period=period, progress=False)
 
-    return df
-
-def generate_signal(df):
     if df.empty:
-        return "No data"
-
-    df['SMA_20'] = pd.Series(
-        ta.trend.sma_indicator(close=df['Close'], window=20).values,
-        index=df.index
-    )
-
-    last_close = df['Close'].iloc[-1]
-    last_sma20 = df['SMA_20'].iloc[-1]
-
-    if pd.isna(last_sma20):
-        return "Not enough data for SMA calculation"
-
-    if last_close > last_sma20:
-        return "BUY 📈"
-    elif last_close < last_sma20:
-        return "SELL 📉"
+        st.error("No data found for this ticker.")
     else:
-        return "HOLD ⚖️"
+        df = strategy.calculate_indicators(df)
+        df = strategy.generate_signals(df)
 
-st.title("📊 Simple Trading Signal App")
+        st.subheader("Historical Price with Signals")
 
-symbol = st.text_input("Enter stock/forex symbol (Yahoo Finance format):", "EURUSD=X")
-period = st.selectbox("Select period", ["1mo", "3mo", "6mo", "1y"])
-interval = st.selectbox("Select interval", ["1d", "1h", "30m", "15m", "5m"])
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(df.index, df['Close'], label='Close Price', color='blue')
+        ax.plot(df.index, df['Upper_BB'], label='Upper BB', linestyle='--', color='gray')
+        ax.plot(df.index, df['Lower_BB'], label='Lower BB', linestyle='--', color='gray')
 
-if st.button("Get Signal"):
-    df = get_data(symbol, period, interval)
+        buy_signals = df[df['Signal'] == 1]
+        sell_signals = df[df['Signal'] == -1]
 
-    if not df.empty:
-        st.write(f"Showing data for **{symbol}**")
-        st.dataframe(df.tail())
+        ax.scatter(buy_signals.index, buy_signals['Close'], marker='^', color='green', s=100, label='Buy Signal')
+        ax.scatter(sell_signals.index, sell_signals['Close'], marker='v', color='red', s=100, label='Sell Signal')
 
-        signal = generate_signal(df)
-        st.subheader(f"Trading Signal: {signal}")
+        ax.set_title(f"{ticker} Close Price & Trading Signals")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price")
+        ax.legend()
+        st.pyplot(fig)
 
-        st.line_chart(df[['Close', 'SMA_20']])
-    else:
-        st.error("No data found. Check symbol or connection.")
+        st.subheader("Strategy Performance")
+
+        stats = strategy.backtest_signals(df)
+        st.write(f"Total Trades: {stats['total_trades']}")
+        st.write(f"Win Rate: {stats['win_rate']*100:.2f}%")
+        st.write(f"Total Return: {stats['total_return']*100:.2f}%")
+
+        st.subheader("Latest Signals")
+        latest = df.iloc[-1]
+        signal_text = "Hold"
+        if latest['Signal'] == 1:
+            signal_text = "Buy"
+        elif latest['Signal'] == -1:
+            signal_text = "Sell"
+        st.write(f"Latest Signal for {ticker}: **{signal_text}**")
