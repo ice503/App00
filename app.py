@@ -17,10 +17,10 @@ if ticker:
     if df.empty:
         st.error("No data found for this ticker.")
     else:
-        # First calculate all indicators to add required columns
+        # Calculate indicators first
         df = strategy.calculate_indicators(df)
 
-        # Then generate buy/sell signals
+        # Generate signals after indicators calculated
         df = strategy.generate_signals(df)
 
         st.subheader("Historical Price with Signals")
