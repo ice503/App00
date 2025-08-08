@@ -100,7 +100,11 @@ def display_pair_signals(pair, df):
 forex_data = generate_forex_data()
 signals = generate_signals(forex_data)
 
-selected_pair = st.selectbox("Select Currency Pair", list(FOREX_PAIRS.keys()), format_func=lambda x: f"{x} ({FOREX_PAIRS[x]})")
+selected_pair = st.selectbox(
+    "Select Currency Pair", 
+    list(FOREX_PAIRS.keys()), 
+    format_func=lambda x: f"{x} ({FOREX_PAIRS[x]})"
+)
 
 st.header(f"{selected_pair} Analysis")
 display_pair_signals(selected_pair, signals[selected_pair])
@@ -118,4 +122,4 @@ st.dataframe(
         for pair, df in signals.items()
     }),
     height=500
-    )
+        )
