@@ -24,19 +24,9 @@ def calculate_indicators(df):
     return df
 
 def generate_signals(df):
-    """
-    Buy signal:
-      - MACD crosses above Signal Line
-      - RSI below 30 (oversold)
-      - Price touches or goes below Lower Bollinger Band
-    Sell signal:
-      - MACD crosses below Signal Line
-      - RSI above 70 (overbought)
-      - Price touches or goes above Upper Bollinger Band
-    """
     df = df.copy()
 
-    # Drop rows with NaN in key columns to avoid errors
+    # Drop rows with NaN in key indicator columns to avoid errors
     df = df.dropna(subset=['MACD', 'Signal_Line', 'RSI', 'Lower_BB', 'Upper_BB'])
 
     df['Buy'] = (
@@ -51,7 +41,6 @@ def generate_signals(df):
         (df['Close'] >= df['Upper_BB'])
     ).fillna(False)
 
-    # Signal column: 1 for buy, -1 for sell, 0 otherwise
     df['Signal'] = 0
     df.loc[df['Buy'], 'Signal'] = 1
     df.loc[df['Sell'], 'Signal'] = -1
@@ -59,12 +48,6 @@ def generate_signals(df):
     return df
 
 def backtest_signals(df):
-    """
-    Simple backtest: 
-    - Buy on signal 1 (close price)
-    - Sell on signal -1 (close price)
-    - Calculate % return
-    """
     df = df.copy()
     positions = []
     returns = []
