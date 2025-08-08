@@ -1,87 +1,74 @@
+# app.py
 import streamlit as st
 import pandas as pd
+import yfinance as yf
 import ta
 
-st.set_page_config(page_title="Trading AI Dashboard", layout="wide")
+st.set_page_config(page_title="AI Trading App", layout="wide")
 
 # ----------------------
-# FUNCTIONS
+# Risk Management Function
 # ----------------------
-
-def generate_signal(df: pd.DataFrame) -> str:
-    """Generate a simple RSI-based trading signal."""
-    df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi()
-    latest_rsi = df['rsi'].iloc[-1]
-    if latest_rsi < 30:
-        return "BUY"
-    elif latest_rsi > 70:
-        return "SELL"
-    return "HOLD"
-
-def calculate_risk_levels(df: pd.DataFrame, entry_price: float, risk_ratio: float = 2.0):
-    """Calculate stop-loss and take-profit using ATR."""
+def calculate_risk_levels(df, entry_price, risk_ratio=2):
     atr = ta.volatility.AverageTrueRange(
-        df['high'], df['low'], df['close']
+        high=df['High'], 
+        low=df['Low'], 
+        close=df['Close'], 
+        window=14
     ).average_true_range().iloc[-1]
-    
+
     stop_loss = entry_price - atr
-    take_profit = entry_price + atr * risk_ratio
-    return stop_loss, take_profit
-
-def calculate_performance():
-    """Mock performance metrics. Extend with real backtesting results."""
-    return {
-        "Win Rate": "65%",
-        "Max Drawdown": "12%",
-        "Risk/Reward": "1:2.5"
-    }
-
-def scan_multi_timeframe(symbol: str):
-    """Mock multi-timeframe signal. Extend with real data sources."""
-    return {
-        "M15": "BUY",
-        "H1": "HOLD",
-        "H4": "BUY",
-        "Convergence": "BULLISH"
-    }
+    take_profit = entry_price + (atr * risk_ratio)
+    return round(stop_loss, 5), round(take_profit, 5)
 
 # ----------------------
-# STREAMLIT UI
+# Signal Generator
 # ----------------------
+def generate_signal(df):
+    df['SMA_20'] = ta.trend.sma_indicator(df['Close'], window=20)
+    df['SMA_50'] = ta.trend.sma_indicator(df['Close'], window=50)
 
-st.sidebar.header("Trading Settings")
-symbol = st.sidebar.selectbox("Symbol", ["EURUSD", "GBPUSD", "XAUUSD"])
-timeframe = st.sidebar.selectbox("Timeframe", ["M15", "H1", "H4"])
-risk_ratio = st.sidebar.slider("Risk/Reward Ratio", 1.0, 5.0, 2.0)
+    if df['SMA_20'].iloc[-1] > df['SMA_50'].iloc[-1]:
+        return "BUY"
+    elif df['SMA_20'].iloc[-1] < df['SMA_50'].iloc[-1]:
+        return "SELL"
+    else:
+        return "HOLD"
 
-st.title("📊 Trading AI Dashboard")
+# ----------------------
+# Streamlit UI
+# ----------------------
+st.title("📈 AI Trading App (Minimal Version)")
 
-# Simulated data (replace with live feed later)
-df = pd.DataFrame({
-    "close": [1.10, 1.105, 1.102, 1.108],
-    "high": [1.11, 1.106, 1.104, 1.109],
-    "low": [1.09, 1.103, 1.100, 1.107]
-})
+symbol = st.text_input("Enter Symbol (e.g., EURUSD=X, BTC-USD, AAPL):", "EURUSD=X")
+risk_ratio = st.slider("Risk-Reward Ratio", 1.0, 5.0, 2.0)
 
-# Generate Signal
-signal = generate_signal(df)
-st.subheader(f"Real-Time Signal: {signal}")
+if st.button("Get Signal"):
+    df = yf.download(symbol, period="1mo", interval="1h")
 
-# Calculate Risk Levels
-entry_price = df["close"].iloc[-1]
-sl, tp = calculate_risk_levels(df, entry_price, risk_ratio)
-st.write(f"**Entry Price:** {entry_price:.5f}")
-st.write(f"**Stop-Loss:** {sl:.5f}")
-st.write(f"**Take-Profit:** {tp:.5f}")
+    if not df.empty:
+        signal = generate_signal(df)
+        entry_price = df['Close'].iloc[-1]
+        sl, tp = calculate_risk_levels(df, entry_price, risk_ratio)
 
-# Multi-Timeframe Scan
-st.subheader("Multi-Timeframe Convergence")
-convergence = scan_multi_timeframe(symbol)
-st.write(convergence)
+        st.subheader(f"Signal for {symbol}: {signal}")
+        st.write(f"Entry Price: {entry_price}")
+        st.write(f"Stop Loss: {sl}")
+        st.write(f"Take Profit: {tp}")
+    else:
+        st.error("No data found for the given symbol.")
 
-# Performance Analytics (Sample)
-st.subheader("Performance Analytics")
-metrics = calculate_performance()
-st.write(metrics)
-
-st.success("✅ Dashboard loaded successfully!")
+# ----------------------
+# Backtesting (Simple)
+# ----------------------
+st.subheader("Backtest Example (SMA Crossover)")
+if st.button("Run Backtest"):
+    df = yf.download(symbol, period="6mo", interval="1h")
+    df['Signal'] = 0
+    df['SMA_20'] = ta.trend.sma_indicator(df['Close'], window=20)
+    df['SMA_50'] = ta.trend.sma_indicator(df['Close'], window=50)
+    df.loc[df['SMA_20'] > df['SMA_50'], 'Signal'] = 1
+    df.loc[df['SMA_20'] < df['SMA_50'], 'Signal'] = -1
+    df['Returns'] = df['Close'].pct_change() * df['Signal'].shift(1)
+    total_return = (df['Returns'] + 1).prod() - 1
+    st.write(f"Total Backtest Return: {total_return:.2%}")
