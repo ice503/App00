@@ -1,11 +1,53 @@
 import streamlit as st
 import pandas as pd
-from core.signals import generate_signal
-from core.risk_manager import calculate_risk_levels
-from core.analytics import calculate_performance
-from core.multi_timeframe import scan_multi_timeframe
+import ta
 
 st.set_page_config(page_title="Trading AI Dashboard", layout="wide")
+
+# ----------------------
+# FUNCTIONS
+# ----------------------
+
+def generate_signal(df: pd.DataFrame) -> str:
+    """Generate a simple RSI-based trading signal."""
+    df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi()
+    latest_rsi = df['rsi'].iloc[-1]
+    if latest_rsi < 30:
+        return "BUY"
+    elif latest_rsi > 70:
+        return "SELL"
+    return "HOLD"
+
+def calculate_risk_levels(df: pd.DataFrame, entry_price: float, risk_ratio: float = 2.0):
+    """Calculate stop-loss and take-profit using ATR."""
+    atr = ta.volatility.AverageTrueRange(
+        df['high'], df['low'], df['close']
+    ).average_true_range().iloc[-1]
+    
+    stop_loss = entry_price - atr
+    take_profit = entry_price + atr * risk_ratio
+    return stop_loss, take_profit
+
+def calculate_performance():
+    """Mock performance metrics. Extend with real backtesting results."""
+    return {
+        "Win Rate": "65%",
+        "Max Drawdown": "12%",
+        "Risk/Reward": "1:2.5"
+    }
+
+def scan_multi_timeframe(symbol: str):
+    """Mock multi-timeframe signal. Extend with real data sources."""
+    return {
+        "M15": "BUY",
+        "H1": "HOLD",
+        "H4": "BUY",
+        "Convergence": "BULLISH"
+    }
+
+# ----------------------
+# STREAMLIT UI
+# ----------------------
 
 st.sidebar.header("Trading Settings")
 symbol = st.sidebar.selectbox("Symbol", ["EURUSD", "GBPUSD", "XAUUSD"])
