@@ -3,23 +3,25 @@ import pandas as pd
 import yfinance as yf
 import ta
 
-# --------------------------
-# Function to download data
-# --------------------------
 def get_data(symbol, period="3mo", interval="1d"):
     df = yf.download(symbol, period=period, interval=interval)
+
+    # Flatten multi-index columns if exist
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [' '.join(col).strip() for col in df.columns.values]
+
     df = df.reset_index()
-    df = df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
+
+    wanted_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+    existing_cols = [col for col in wanted_cols if col in df.columns]
+    df = df[existing_cols]
+
     return df
 
-# --------------------------
-# Function to generate trading signal
-# --------------------------
 def generate_signal(df):
     if df.empty:
         return "No data"
 
-    # Calculate SMA safely
     df['SMA_20'] = pd.Series(
         ta.trend.sma_indicator(close=df['Close'], window=20).values,
         index=df.index
@@ -38,9 +40,6 @@ def generate_signal(df):
     else:
         return "HOLD ⚖️"
 
-# --------------------------
-# Streamlit UI
-# --------------------------
 st.title("📊 Simple Trading Signal App")
 
 symbol = st.text_input("Enter stock/forex symbol (Yahoo Finance format):", "EURUSD=X")
