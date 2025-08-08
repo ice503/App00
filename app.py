@@ -17,8 +17,18 @@ if ticker:
     if df.empty:
         st.error("No data found for this ticker.")
     else:
+        # Calculate indicators first
         df = strategy.calculate_indicators(df)
-        df = strategy.generate_signals(df)
+
+        # Show columns to debug if needed
+        st.write("Columns after indicator calculation:", df.columns.tolist())
+
+        # Generate signals after indicator calculation
+        try:
+            df = strategy.generate_signals(df)
+        except KeyError as e:
+            st.error(f"Error generating signals: {e}")
+            st.stop()
 
         st.subheader("Historical Price with Signals")
 
