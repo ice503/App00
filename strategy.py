@@ -2,46 +2,47 @@ import pandas as pd
 import numpy as np
 
 def calculate_indicators(df):
-    # Calculate MACD
+    df = df.copy()
+
+    # MACD
     exp1 = df['Close'].ewm(span=12, adjust=False).mean()
     exp2 = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = exp1 - exp2
     df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
-    # Calculate RSI
+    # RSI
     delta = df['Close'].diff()
     gain = delta.where(delta > 0, 0).rolling(window=14).mean()
     loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
 
-    # Calculate Bollinger Bands
+    # Bollinger Bands
     df['20_MA'] = df['Close'].rolling(window=20).mean()
     df['20_STD'] = df['Close'].rolling(window=20).std()
-    df['Upper_BB'] = df['20_MA'] + (2 * df['20_STD'])
-    df['Lower_BB'] = df['20_MA'] - (2 * df['20_STD'])
+    df['Upper_BB'] = df['20_MA'] + 2 * df['20_STD']
+    df['Lower_BB'] = df['20_MA'] - 2 * df['20_STD']
 
     return df
 
 def generate_signals(df):
     df = df.copy()
 
-    required_cols = ['MACD', 'Signal_Line', 'RSI', 'Lower_BB', 'Upper_BB']
+    required_cols = ['MACD', 'Signal_Line', 'RSI', 'Lower_BB', 'Upper_BB', 'Close']
+
+    # Check columns exist
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise KeyError(f"Missing columns for signal generation: {missing_cols}")
 
-    # Drop rows with NaN in these columns to avoid errors
-    df = df.dropna(subset=required_cols + ['Close'])
+    # Drop NaN rows
+    df = df.dropna(subset=required_cols)
 
-    # Buy signal conditions
     buy_condition = (
         (df['MACD'] > df['Signal_Line']) & (df['MACD'].shift(1) <= df['Signal_Line'].shift(1)) &
         (df['RSI'] < 30) &
         (df['Close'] <= df['Lower_BB'])
     )
-
-    # Sell signal conditions
     sell_condition = (
         (df['MACD'] < df['Signal_Line']) & (df['MACD'].shift(1) >= df['Signal_Line'].shift(1)) &
         (df['RSI'] > 70) &
