@@ -17,10 +17,7 @@ if ticker:
     if df.empty:
         st.error("No data found for this ticker.")
     else:
-        # Calculate indicators first
         df = strategy.calculate_indicators(df)
-
-        # Generate signals after indicators calculated
         df = strategy.generate_signals(df)
 
         st.subheader("Historical Price with Signals")
