@@ -1,6 +1,5 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 import matplotlib.pyplot as plt
 import strategy
 
@@ -18,7 +17,10 @@ if ticker:
     if df.empty:
         st.error("No data found for this ticker.")
     else:
+        # First calculate all indicators to add required columns
         df = strategy.calculate_indicators(df)
+
+        # Then generate buy/sell signals
         df = strategy.generate_signals(df)
 
         st.subheader("Historical Price with Signals")
@@ -47,7 +49,7 @@ if ticker:
         st.write(f"Win Rate: {stats['win_rate']*100:.2f}%")
         st.write(f"Total Return: {stats['total_return']*100:.2f}%")
 
-        st.subheader("Latest Signals")
+        st.subheader("Latest Signal")
         latest = df.iloc[-1]
         signal_text = "Hold"
         if latest['Signal'] == 1:
