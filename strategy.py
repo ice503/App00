@@ -35,13 +35,27 @@ def generate_signals(df):
       - Price touches or goes above Upper Bollinger Band
     """
     df = df.copy()
-    df['Buy'] = ((df['MACD'] > df['Signal_Line']) & (df['MACD'].shift(1) <= df['Signal_Line'].shift(1))) & (df['RSI'] < 30) & (df['Close'] <= df['Lower_BB'])
-    df['Sell'] = ((df['MACD'] < df['Signal_Line']) & (df['MACD'].shift(1) >= df['Signal_Line'].shift(1))) & (df['RSI'] > 70) & (df['Close'] >= df['Upper_BB'])
+
+    # Drop rows with NaN in key columns to avoid errors
+    df = df.dropna(subset=['MACD', 'Signal_Line', 'RSI', 'Lower_BB', 'Upper_BB'])
+
+    df['Buy'] = (
+        (df['MACD'] > df['Signal_Line']) & (df['MACD'].shift(1) <= df['Signal_Line'].shift(1)) &
+        (df['RSI'] < 30) &
+        (df['Close'] <= df['Lower_BB'])
+    ).fillna(False)
+
+    df['Sell'] = (
+        (df['MACD'] < df['Signal_Line']) & (df['MACD'].shift(1) >= df['Signal_Line'].shift(1)) &
+        (df['RSI'] > 70) &
+        (df['Close'] >= df['Upper_BB'])
+    ).fillna(False)
 
     # Signal column: 1 for buy, -1 for sell, 0 otherwise
     df['Signal'] = 0
     df.loc[df['Buy'], 'Signal'] = 1
     df.loc[df['Sell'], 'Signal'] = -1
+
     return df
 
 def backtest_signals(df):
@@ -81,4 +95,4 @@ def backtest_signals(df):
         'total_trades': total_trades,
         'positions': positions,
         'returns': returns
-  }
+    }
