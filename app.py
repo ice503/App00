@@ -21,7 +21,7 @@ def safe_generate_signals(df, price_col='Close'):
         
         # Auto-detect suitable price column
         numeric_cols = df.select_dtypes(include=[np.number]).columns
-        if not numeric_cols.empty:
+        if len(numeric_cols) > 0:
             price_col = numeric_cols[0]
         
         # Ensure we have valid data
@@ -29,7 +29,7 @@ def safe_generate_signals(df, price_col='Close'):
             raise ValueError("No suitable price column found")
         
         # Convert to numeric safely
-        df[price_col] = pd.to_numeric(df[price_col].values, errors='coerce')
+        df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
         df = df.dropna(subset=[price_col])
         
         if df.empty:
@@ -40,10 +40,13 @@ def safe_generate_signals(df, price_col='Close'):
         df["MA50"] = df[price_col].rolling(50).mean()
         df["RSI"] = calculate_rsi(df[price_col])
         
-        # Generate signals
+        # Generate signals (fixed boolean operations)
+        buy_condition = (df["RSI"] < 30) & (df["MA10"] > df["MA50"])
+        sell_condition = (df["RSI"] > 70) & (df["MA10"] < df["MA50"])
+        
         df["Signal"] = 0
-        df.loc[(df["RSI"] < 30) & (df["MA10"] > df["MA50"]), "Signal"] = 1
-        df.loc[(df["RSI"] > 70) & (df["MA10"] < df["MA50"]), "Signal"] = -1
+        df.loc[buy_condition, "Signal"] = 1
+        df.loc[sell_condition, "Signal"] = -1
         
         return df, price_col
         
@@ -56,7 +59,6 @@ def live_signal_app():
     st.header("📈 Live Signal Generator")
     pair = st.selectbox("Currency Pair", ["EUR/USD", "GBP/USD", "USD/JPY"], key='live_pair')
     
-    # Generate realistic synthetic data
     try:
         dates = pd.date_range(end=datetime.now(), periods=100)
         prices = {
@@ -68,7 +70,7 @@ def live_signal_app():
         data = pd.DataFrame({"Date": dates, "Price": prices})
         signals, price_col = safe_generate_signals(data, 'Price')
         
-        if not signals.empty:
+        if not signals.empty and price_col:
             display_signals(pair, signals, price_col)
             
     except Exception as e:
@@ -90,7 +92,7 @@ def backtester_app():
                 data = yf.download(pair, period=f"{years}y")
                 if not data.empty:
                     signals, price_col = safe_generate_signals(data)
-                    if not signals.empty:
+                    if not signals.empty and price_col:
                         display_signals(pair.replace("=X", ""), signals, price_col)
                 else:
                     st.warning("No data returned from Yahoo Finance")
@@ -105,13 +107,20 @@ def display_signals(pair, signals, price_col):
         price_value = float(latest[price_col])
         
         # Smart decimal formatting
-        decimals = 5 if any(p in pair for p in ['JPY', 'XAU']) else 5
+        decimals = 2 if any(p in pair for p in ['JPY']) else 5
         fmt_price = f"{price_value:.{decimals}f}".rstrip('0').rstrip('.')
+        
+        # Get signal direction safely
+        signal_val = latest['Signal']
+        if pd.isna(signal_val):
+            signal_display = "HOLD ⚪"
+        else:
+            signal_display = "BUY 🟢" if signal_val == 1 else "SELL 🔴" if signal_val == -1 else "HOLD ⚪"
         
         st.metric(
             label=pair,
             value=fmt_price,
-            delta="BUY 🟢" if latest['Signal'] == 1 else "SELL 🔴" if latest['Signal'] == -1 else "HOLD ⚪"
+            delta=signal_display
         )
         
         # Prepare chart data
@@ -119,12 +128,14 @@ def display_signals(pair, signals, price_col):
         chart_data.columns = ["Price", "MA(10)", "MA(50)"]
         st.line_chart(chart_data)
         
-        # Show recent signals
+        # Show recent signals with color coding
         with st.expander("Recent Signals"):
+            display_df = signals.tail(10)[[price_col, 'Signal']].copy()
             st.dataframe(
-                signals.tail(10)[[price_col, 'Signal']].style.apply(
-                    lambda x: ['background: lightgreen' if x.Signal == 1 else 
-                             'background: lightcoral' if x.Signal == -1 else ''], 
+                display_df.style.apply(
+                    lambda x: ['background: lightgreen' if x.iloc[1] == 1 else 
+                             'background: lightcoral' if x.iloc[1] == -1 else '' 
+                             for _ in x],
                     axis=1
                 )
             )
