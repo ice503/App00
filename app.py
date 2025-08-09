@@ -139,12 +139,12 @@ def live_signal_app():
     pair = st.selectbox("Currency Pair", ["EUR/USD", "GBP/USD", "USD/JPY"], key='live_pair')
     
     try:
-        # Generate synthetic data
+        # Generate synthetic data (FIXED missing parenthesis)
         dates = pd.date_range(end=datetime.now(), periods=100)
         prices = {
-            "EUR/USD": 1.08 + np.cumsum(np.random.randn(100) * 0.002,
-            "GBP/USD": 1.26 + np.cumsum(np.random.randn(100) * 0.002,
-            "USD/JPY": 151.50 + np.cumsum(np.random.randn(100) * 0.2
+            "EUR/USD": 1.08 + np.cumsum(np.random.randn(100) * 0.002),
+            "GBP/USD": 1.26 + np.cumsum(np.random.randn(100) * 0.002),
+            "USD/JPY": 151.50 + np.cumsum(np.random.randn(100) * 0.2)
         }[pair]
         
         data = pd.DataFrame({
