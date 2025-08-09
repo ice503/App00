@@ -15,10 +15,21 @@ def calculate_rsi(series, window=14):
     return 100 - (100 / (1 + rs))
 
 def generate_signals(df, price_col='Close'):
-    """Works with both synthetic and Yahoo Finance data"""
+    """Universal signal generator that works with any data format"""
     df = df.copy()
+    
+    # Auto-detect price column if not specified
     if price_col not in df.columns:
-        price_col = df.columns[0]  # Fallback to first column
+        for col in ['Close', 'Price', 'Last', 'price']:
+            if col in df.columns:
+                price_col = col
+                break
+        else:  # No matching column found
+            price_col = df.columns[0]
+    
+    # Ensure numeric data
+    df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+    df = df.dropna(subset=[price_col])
     
     df["MA10"] = df[price_col].rolling(10).mean()
     df["MA50"] = df[price_col].rolling(50).mean()
@@ -27,14 +38,14 @@ def generate_signals(df, price_col='Close'):
     df["Signal"] = 0
     df.loc[(df["RSI"] < 30) & (df["MA10"] > df["MA50"]), "Signal"] = 1
     df.loc[(df["RSI"] > 70) & (df["MA10"] < df["MA50"]), "Signal"] = -1
-    return df
+    return df, price_col
 
 # --- Live Signal Generator ---
 def live_signal_app():
     st.header("📈 Live Signal Generator")
     pair = st.selectbox("Currency Pair", ["EUR/USD", "GBP/USD", "USD/JPY"], key='live_pair')
     
-    # Synthetic data (matches your original structure)
+    # Synthetic data with realistic ranges
     dates = pd.date_range(end=datetime.now(), periods=100)
     prices = {
         "EUR/USD": 1.08 + np.cumsum(np.random.randn(100) * 0.002),
@@ -43,9 +54,8 @@ def live_signal_app():
     }[pair]
     
     data = pd.DataFrame({"Date": dates, "Price": prices})
-    signals = generate_signals(data, price_col='Price')
-    
-    display_signals(pair, signals, price_col='Price')
+    signals, price_col = generate_signals(data, 'Price')
+    display_signals(pair, signals, price_col)
 
 # --- Backtester ---
 def backtester_app():
@@ -58,29 +68,39 @@ def backtester_app():
         years = st.slider("Test Period", 1, 5, 2, key='years')
     
     if st.button("Run Backtest"):
-        data = yf.download(pair, period=f"{years}y")
-        if not data.empty:
-            signals = generate_signals(data)
-            display_signals(pair.replace("=X", ""), signals)
-        else:
-            st.error("Failed to fetch data. Try again later.")
+        with st.spinner("Fetching historical data..."):
+            data = yf.download(pair, period=f"{years}y")
+            if not data.empty:
+                signals, price_col = generate_signals(data)
+                display_signals(pair.replace("=X", ""), signals, price_col)
+            else:
+                st.error("No data available. Try a different pair or time range.")
 
-# --- Shared Display Function ---
-def display_signals(pair, signals, price_col='Close'):
-    """Universal display for both live and backtested signals"""
-    if price_col not in signals.columns:
-        price_col = signals.columns[0]
-    
-    latest = signals.iloc[-1]
-    st.metric(
-        label=pair,
-        value=f"{latest[price_col]:.5f}",
-        delta="BUY 🟢" if latest['Signal'] == 1 else "SELL 🔴" if latest['Signal'] == -1 else "HOLD ⚪"
-    )
-    
-    # Plot with dynamic column names
-    plot_cols = {price_col: "Price", "MA10": "MA(10)", "MA50": "MA(50)"}
-    st.line_chart(signals[[price_col, "MA10", "MA50"]].rename(columns=plot_cols))
+# --- Universal Display Function ---
+def display_signals(pair, signals, price_col):
+    """Robust display that handles any numeric data format"""
+    try:
+        latest = signals.iloc[-1]
+        price_value = float(latest[price_col])
+        
+        st.metric(
+            label=pair,
+            value=f"{price_value:.5f}".rstrip('0').rstrip('.') if '.' in f"{price_value:.5f}" else f"{price_value:.5f}",
+            delta="BUY 🟢" if latest['Signal'] == 1 else "SELL 🔴" if latest['Signal'] == -1 else "HOLD ⚪"
+        )
+        
+        # Prepare chart data
+        chart_data = signals[[price_col, "MA10", "MA50"]].copy()
+        chart_data.columns = ["Price", "MA(10)", "MA(50)"]
+        st.line_chart(chart_data)
+        
+        # Show recent signals
+        st.subheader("Recent Signals")
+        st.dataframe(signals[['Date' if 'Date' in signals.columns else signals.index.name, 
+                            price_col, 'Signal']].tail(10))
+        
+    except Exception as e:
+        st.error(f"Display error: {str(e)}")
 
 # --- Main App ---
 st.set_page_config(layout="wide")
