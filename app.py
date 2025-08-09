@@ -14,48 +14,65 @@ def calculate_rsi(series, window=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-def generate_signals(df, price_col='Close'):
-    """Universal signal generator that works with any data format"""
-    df = df.copy()
-    
-    # Auto-detect price column if not specified
-    if price_col not in df.columns:
-        for col in ['Close', 'Price', 'Last', 'price']:
-            if col in df.columns:
-                price_col = col
-                break
-        else:  # No matching column found
-            price_col = df.columns[0]
-    
-    # Ensure numeric data
-    df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
-    df = df.dropna(subset=[price_col])
-    
-    df["MA10"] = df[price_col].rolling(10).mean()
-    df["MA50"] = df[price_col].rolling(50).mean()
-    df["RSI"] = calculate_rsi(df[price_col])
-    
-    df["Signal"] = 0
-    df.loc[(df["RSI"] < 30) & (df["MA10"] > df["MA50"]), "Signal"] = 1
-    df.loc[(df["RSI"] > 70) & (df["MA10"] < df["MA50"]), "Signal"] = -1
-    return df, price_col
+def safe_generate_signals(df, price_col='Close'):
+    """Bulletproof signal generation with full error handling"""
+    try:
+        df = df.copy()
+        
+        # Auto-detect suitable price column
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        if not numeric_cols.empty:
+            price_col = numeric_cols[0]
+        
+        # Ensure we have valid data
+        if price_col not in df.columns or df[price_col].empty:
+            raise ValueError("No suitable price column found")
+        
+        # Convert to numeric safely
+        df[price_col] = pd.to_numeric(df[price_col].values, errors='coerce')
+        df = df.dropna(subset=[price_col])
+        
+        if df.empty:
+            raise ValueError("No valid numeric data after cleaning")
+            
+        # Calculate indicators
+        df["MA10"] = df[price_col].rolling(10).mean()
+        df["MA50"] = df[price_col].rolling(50).mean()
+        df["RSI"] = calculate_rsi(df[price_col])
+        
+        # Generate signals
+        df["Signal"] = 0
+        df.loc[(df["RSI"] < 30) & (df["MA10"] > df["MA50"]), "Signal"] = 1
+        df.loc[(df["RSI"] > 70) & (df["MA10"] < df["MA50"]), "Signal"] = -1
+        
+        return df, price_col
+        
+    except Exception as e:
+        st.error(f"Signal generation failed: {str(e)}")
+        return pd.DataFrame(), None
 
 # --- Live Signal Generator ---
 def live_signal_app():
     st.header("📈 Live Signal Generator")
     pair = st.selectbox("Currency Pair", ["EUR/USD", "GBP/USD", "USD/JPY"], key='live_pair')
     
-    # Synthetic data with realistic ranges
-    dates = pd.date_range(end=datetime.now(), periods=100)
-    prices = {
-        "EUR/USD": 1.08 + np.cumsum(np.random.randn(100) * 0.002),
-        "GBP/USD": 1.26 + np.cumsum(np.random.randn(100) * 0.002),
-        "USD/JPY": 151.50 + np.cumsum(np.random.randn(100) * 0.2)
-    }[pair]
-    
-    data = pd.DataFrame({"Date": dates, "Price": prices})
-    signals, price_col = generate_signals(data, 'Price')
-    display_signals(pair, signals, price_col)
+    # Generate realistic synthetic data
+    try:
+        dates = pd.date_range(end=datetime.now(), periods=100)
+        prices = {
+            "EUR/USD": 1.08 + np.cumsum(np.random.randn(100) * 0.002),
+            "GBP/USD": 1.26 + np.cumsum(np.random.randn(100) * 0.002),
+            "USD/JPY": 151.50 + np.cumsum(np.random.randn(100) * 0.2)
+        }[pair]
+        
+        data = pd.DataFrame({"Date": dates, "Price": prices})
+        signals, price_col = safe_generate_signals(data, 'Price')
+        
+        if not signals.empty:
+            display_signals(pair, signals, price_col)
+            
+    except Exception as e:
+        st.error(f"Live data error: {str(e)}")
 
 # --- Backtester ---
 def backtester_app():
@@ -69,23 +86,31 @@ def backtester_app():
     
     if st.button("Run Backtest"):
         with st.spinner("Fetching historical data..."):
-            data = yf.download(pair, period=f"{years}y")
-            if not data.empty:
-                signals, price_col = generate_signals(data)
-                display_signals(pair.replace("=X", ""), signals, price_col)
-            else:
-                st.error("No data available. Try a different pair or time range.")
+            try:
+                data = yf.download(pair, period=f"{years}y")
+                if not data.empty:
+                    signals, price_col = safe_generate_signals(data)
+                    if not signals.empty:
+                        display_signals(pair.replace("=X", ""), signals, price_col)
+                else:
+                    st.warning("No data returned from Yahoo Finance")
+            except Exception as e:
+                st.error(f"Backtest failed: {str(e)}")
 
-# --- Universal Display Function ---
+# --- Universal Display ---
 def display_signals(pair, signals, price_col):
-    """Robust display that handles any numeric data format"""
+    """Error-proof display function"""
     try:
         latest = signals.iloc[-1]
         price_value = float(latest[price_col])
         
+        # Smart decimal formatting
+        decimals = 5 if any(p in pair for p in ['JPY', 'XAU']) else 5
+        fmt_price = f"{price_value:.{decimals}f}".rstrip('0').rstrip('.')
+        
         st.metric(
             label=pair,
-            value=f"{price_value:.5f}".rstrip('0').rstrip('.') if '.' in f"{price_value:.5f}" else f"{price_value:.5f}",
+            value=fmt_price,
             delta="BUY 🟢" if latest['Signal'] == 1 else "SELL 🔴" if latest['Signal'] == -1 else "HOLD ⚪"
         )
         
@@ -95,10 +120,15 @@ def display_signals(pair, signals, price_col):
         st.line_chart(chart_data)
         
         # Show recent signals
-        st.subheader("Recent Signals")
-        st.dataframe(signals[['Date' if 'Date' in signals.columns else signals.index.name, 
-                            price_col, 'Signal']].tail(10))
-        
+        with st.expander("Recent Signals"):
+            st.dataframe(
+                signals.tail(10)[[price_col, 'Signal']].style.apply(
+                    lambda x: ['background: lightgreen' if x.Signal == 1 else 
+                             'background: lightcoral' if x.Signal == -1 else ''], 
+                    axis=1
+                )
+            )
+            
     except Exception as e:
         st.error(f"Display error: {str(e)}")
 
